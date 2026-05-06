@@ -1,0 +1,60 @@
+// Stesse colonne di Supabase + sync_pending per offline-first
+// sync_pending: 0 = sincronizzato, 1 = da inviare a Supabase
+
+export const CREATE_VEHICLES = `
+  CREATE TABLE IF NOT EXISTS vehicles (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    brand TEXT NOT NULL,
+    model TEXT NOT NULL,
+    year INTEGER NOT NULL,
+    displacement_cc INTEGER,
+    tank_capacity_l REAL NOT NULL,
+    odometer_start_km INTEGER NOT NULL DEFAULT 0,
+    fuel_type TEXT NOT NULL DEFAULT 'benzina',
+    nickname TEXT,
+    color_hex TEXT,
+    is_active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    sync_pending INTEGER NOT NULL DEFAULT 0
+  )
+`
+
+export const CREATE_REFUELS = `
+  CREATE TABLE IF NOT EXISTS refuels (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    vehicle_id TEXT NOT NULL,
+    date TEXT NOT NULL,
+    odometer_km INTEGER NOT NULL,
+    liters REAL NOT NULL,
+    amount_eur REAL NOT NULL,
+    is_full_tank INTEGER NOT NULL DEFAULT 1,
+    notes TEXT,
+    km_driven INTEGER,
+    km_per_liter REAL,
+    cost_per_km REAL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    sync_pending INTEGER NOT NULL DEFAULT 0
+  )
+`
+
+export const CREATE_MAINTENANCE = `
+  CREATE TABLE IF NOT EXISTS maintenance (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    vehicle_id TEXT NOT NULL,
+    type TEXT NOT NULL,
+    label TEXT,
+    last_date TEXT,
+    last_km INTEGER,
+    interval_km INTEGER,
+    interval_months INTEGER,
+    notes TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    sync_pending INTEGER NOT NULL DEFAULT 0
+  )
+`

@@ -1,0 +1,39 @@
+# ─── SEGRETI — MAI pushare ────────────────────────────────────────────────────
+.env.local
+.env
+*.env
+!.env.example
+
+# ─── EXPO / REACT NATIVE ──────────────────────────────────────────────────────
+node_modules/
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+
+# Native
+ios/
+android/
+
+# ─── macOS ────────────────────────────────────────────────────────────────────
+.DS_Store
+**/.DS_Store
+*.swp
+
+# ─── DATABASE LOCALE ──────────────────────────────────────────────────────────
+*.db
+*.sqlite
+*.sqlite3
+
+# ─── LOG ──────────────────────────────────────────────────────────────────────
+*.log
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# ─── TEST / COVERAGE ──────────────────────────────────────────────────────────
+coverage/
+
+# ─── VS CODE ──────────────────────────────────────────────────────────────────
+.vscode/
+!.vscode/extensions.json

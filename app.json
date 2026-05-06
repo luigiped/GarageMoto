@@ -1,0 +1,39 @@
+{
+  "expo": {
+    "name": "GarageMoto",
+    "slug": "garagemoto",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "garagemoto",
+    "userInterfaceStyle": "automatic",
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.garagemoto.app"
+    },
+    "android": {
+      "package": "com.garagemoto.app"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-dev-client",
+      [
+        "expo-notifications",
+        {
+          "color": "#E8611A"
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "28663b14-5e24-4802-8f04-58eba5cce1d1"
+      }
+    }
+  }
+}
