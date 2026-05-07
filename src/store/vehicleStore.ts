@@ -128,6 +128,7 @@ export const useVehicleStore = create<VehicleStore>((set, get) => ({
       await db.runAsync('DELETE FROM vehicles WHERE id=?', [id])
       await db.runAsync('DELETE FROM refuels WHERE vehicle_id=?', [id])
       await db.runAsync('DELETE FROM maintenance WHERE vehicle_id=?', [id])
+      await db.runAsync('DELETE FROM trips WHERE vehicle_id=?', [id])
       const vehicles = get().vehicles.filter(v => v.id !== id)
       set({
         vehicles,

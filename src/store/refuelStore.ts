@@ -46,21 +46,22 @@ export const useRefuelStore = create<RefuelStore>((set, get) => ({
     set({ error: null })
     const now = new Date().toISOString()
     const sorted = get().refuels
-
-    // Calcola km_driven e km_per_liter rispetto al rifornimento precedente
     const previous = sorted[0]
     const km_driven = previous
       ? data.odometer_km - previous.odometer_km
       : undefined
-    const km_per_liter =
-      previous && km_driven && km_driven > 0
-        ? lastFillConsumption(
-            data.odometer_km,
-            previous.odometer_km,
-            data.liters,
-            data.is_full_tank,
-          ) ?? undefined
-        : undefined
+    const canComputeConsumption =
+      Boolean(data.is_full_tank) &&
+      Boolean(previous?.is_full_tank) &&
+      Boolean(km_driven && km_driven > 0)
+    const km_per_liter = canComputeConsumption && previous
+      ? lastFillConsumption(
+          data.odometer_km,
+          previous.odometer_km,
+          data.liters,
+          data.is_full_tank,
+        ) ?? undefined
+      : undefined
     const cost_per_km =
       km_driven && km_driven > 0
         ? costPerKm(data.amount_eur, km_driven) ?? undefined

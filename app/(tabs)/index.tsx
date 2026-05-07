@@ -1,10 +1,13 @@
+// R1.1 - aggiunta card ultimo viaggio
 import { useEffect } from 'react'
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet } from 'react-native'
 import { router } from 'expo-router'
+import type { Href } from 'expo-router'
 import { useAuthStore } from '../../src/store/authStore'
 import { useVehicleStore } from '../../src/store/vehicleStore'
 import { useRefuelStore } from '../../src/store/refuelStore'
 import { useMaintenanceStore } from '../../src/store/maintenanceStore'
+import { useTripStore } from '../../src/store/tripStore' // R1.1
 import { averageConsumption, estimatedRange, currentMonthSpending } from '../../src/utils/fuelCalculator'
 import { getStatus } from '../../src/utils/maintenanceChecker'
 import { formatEuro, formatDate } from '../../src/utils/formatters'
@@ -19,17 +22,22 @@ function KpiCard({ label, value }: { label: string; value: string }) {
   )
 }
 
+const PERFORMANCE_ROUTE = '/performance' as Href
+
 export default function DashboardScreen() {
   const { user } = useAuthStore()
   const { activeVehicle, loadVehicles } = useVehicleStore()
   const { refuels, loadRefuels } = useRefuelStore()
   const { items: maintenance, loadMaintenance } = useMaintenanceStore()
+  const { trips, loadTrips } = useTripStore() // R1.1
 
   useEffect(() => { if (user?.id) loadVehicles(user.id) }, [user?.id])
+
   useEffect(() => {
     if (!activeVehicle?.id) return
     loadRefuels(activeVehicle.id)
     loadMaintenance(activeVehicle.id)
+    loadTrips(activeVehicle.id) // R1.1
   }, [activeVehicle?.id])
 
   if (!activeVehicle) {
@@ -45,15 +53,16 @@ export default function DashboardScreen() {
     )
   }
 
-  const currentKm = refuels[0]?.odometer_km ?? activeVehicle.odometer_start_km
-  const avg = averageConsumption(refuels)
-  const lastKml = refuels[0]?.km_per_liter ?? null
-  const range = estimatedRange(activeVehicle.tank_capacity_l, refuels, currentKm)
-  const monthSpend = currentMonthSpending(refuels)
-  const lastRefuel = refuels[0]
-  const overdue = maintenance.filter(m => getStatus(m, currentKm) === 'overdue')
-  const warning = maintenance.filter(m => getStatus(m, currentKm) === 'warning')
-  const isOverdue = overdue.length > 0
+  const currentKm   = refuels[0]?.odometer_km ?? activeVehicle.odometer_start_km
+  const avg         = averageConsumption(refuels)
+  const lastKml     = refuels[0]?.km_per_liter ?? null
+  const range       = estimatedRange(activeVehicle.tank_capacity_l, refuels, currentKm)
+  const monthSpend  = currentMonthSpending(refuels)
+  const lastRefuel  = refuels[0]
+  const lastTrip    = trips[0] // R1.1
+  const overdue     = maintenance.filter(m => getStatus(m, currentKm) === 'overdue')
+  const warning     = maintenance.filter(m => getStatus(m, currentKm) === 'warning')
+  const isOverdue   = overdue.length > 0
 
   return (
     <ScrollView style={s.root} contentContainerStyle={s.content}>
@@ -62,6 +71,7 @@ export default function DashboardScreen() {
         {activeVehicle.nickname ?? `${activeVehicle.brand} ${activeVehicle.model}`}
       </Text>
 
+      {/* Alert manutenzione */}
       {(overdue.length > 0 || warning.length > 0) && (
         <TouchableOpacity
           style={[s.alertBanner, { borderColor: isOverdue ? colors.error : colors.warning }]}
@@ -77,11 +87,12 @@ export default function DashboardScreen() {
         </TouchableOpacity>
       )}
 
+      {/* KPI 2x2 */}
       <View style={s.kpiGrid}>
         <View style={s.kpiRow}>
           <KpiCard label="Ultimo km/l" value={lastKml != null ? `${lastKml.toFixed(1)} km/l` : '--'} />
           <View style={{ width: spacing.sm }} />
-          <KpiCard label="Media km/l" value={avg != null ? `${avg.toFixed(1)} km/l` : '--'} />
+          <KpiCard label="Media km/l"  value={avg != null ? `${avg.toFixed(1)} km/l` : '--'} />
         </View>
         <View style={{ height: spacing.sm }} />
         <View style={s.kpiRow}>
@@ -91,6 +102,7 @@ export default function DashboardScreen() {
         </View>
       </View>
 
+      {/* Card ultimo rifornimento */}
       {lastRefuel && (
         <View style={s.card}>
           <View style={s.cardHeader}>
@@ -107,11 +119,35 @@ export default function DashboardScreen() {
         </View>
       )}
 
-      {refuels.length === 0 && (
-        <TouchableOpacity style={s.btn} onPress={() => router.push('/refuels')}>
-          <Text style={s.btnText}>+ Aggiungi primo rifornimento</Text>
+      {/* R1.1 - Card ultimo viaggio */}
+      {lastTrip && (
+        <TouchableOpacity style={s.card} onPress={() => router.push('./trips')}>
+          <View style={s.cardHeader}>
+            <Text style={s.cardTitle}>🗺️ Ultimo viaggio</Text>
+            <Text style={s.cardDate}>{formatDate(lastTrip.start_time.slice(0, 10))}</Text>
+          </View>
+          <View style={s.cardRow}>
+            <Stat value={`${lastTrip.distance_km.toFixed(1)} km`} label="distanza" />
+            <Stat value={`${lastTrip.duration_minutes} min`}       label="durata" />
+            <Stat value={`${lastTrip.avg_speed_kmh.toFixed(0)} km/h`} label="media" />
+          </View>
         </TouchableOpacity>
       )}
+
+      {/* Collegamento statistiche */}
+      <TouchableOpacity
+        style={[s.btn, { backgroundColor: colors.surfaceDk }]}
+        onPress={() => router.push('/statistics')}
+      >
+        <Text style={[s.btnText, { color: colors.primary }]}>📊 Vedi statistiche complete</Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        style={[s.btn, { backgroundColor: 'rgba(255,159,10,0.12)', borderWidth: 1, borderColor: 'rgba(255,159,10,0.3)' }]}
+        onPress={() => router.push(PERFORMANCE_ROUTE)}
+      >
+        <Text style={[s.btnText, { color: colors.warning }]}>🏁 Apri performance bonus</Text>
+      </TouchableOpacity>
     </ScrollView>
   )
 }
@@ -146,6 +182,6 @@ const s = StyleSheet.create({
   cardTitle:   { fontSize: font.sm, fontWeight: '500', color: colors.primary },
   cardDate:    { fontSize: font.sm, color: colors.textMuted },
   cardRow:     { flexDirection: 'row', gap: spacing.lg },
-  btn:         { backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: 16, alignItems: 'center' },
+  btn:         { backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: 14, alignItems: 'center', marginTop: spacing.sm },
   btnText:     { color: '#fff', fontWeight: '600', fontSize: font.base },
 })

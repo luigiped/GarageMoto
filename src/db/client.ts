@@ -1,213 +1,123 @@
 import * as SQLite from 'expo-sqlite'
-import { CREATE_MAINTENANCE, CREATE_REFUELS, CREATE_VEHICLES } from './schema'
+import {
+  CREATE_MAINTENANCE,
+  CREATE_REFUELS,
+  CREATE_TRIPS,
+  CREATE_VEHICLES,
+} from './schema'
 
-type Row = Record<string, unknown>
+type SqlValue = string | number | null
 
 export interface AppDatabase {
-  runAsync(source: string, params?: unknown[]): Promise<unknown>
-  getAllAsync<T>(source: string, params?: unknown[]): Promise<T[]>
+  execAsync: (sql: string) => Promise<void>
+  runAsync: (sql: string, params?: SqlValue[]) => Promise<void>
+  getAllAsync: <T>(sql: string, params?: SqlValue[]) => Promise<T[]>
 }
 
+type TableName = 'vehicles' | 'refuels' | 'maintenance' | 'trips'
+type DbMode = 'sqlite' | 'memory'
+type MemoryTables = Record<TableName, Record<string, SqlValue>[]>
+
 let _db: AppDatabase | null = null
-let _isFallbackDb = false
+let _dbMode: DbMode = 'sqlite'
 
 export function getDb(): AppDatabase {
   if (!_db) throw new Error('Database non inizializzato. Chiama initDb() prima.')
   return _db
 }
 
-export function isFallbackDb(): boolean {
-  return _isFallbackDb
+export async function ensureDb(): Promise<AppDatabase> {
+  if (!_db) {
+    await initDb()
+  }
+
+  return getDb()
+}
+
+export function getDbMode(): DbMode {
+  return _dbMode
+}
+
+export function isUsingMemoryDb(): boolean {
+  return _dbMode === 'memory'
 }
 
 export async function initDb(): Promise<void> {
-  if (_db) {
-    return
-  }
-
   try {
-    const db = await SQLite.openDatabaseAsync('garagemoto.db')
+    const sqlite = await SQLite.openDatabaseAsync('garagemoto.db')
+    const adapter = createSqliteAdapter(sqlite)
 
-    // Expo Go Android puo fallire in prepareAsync su alcuni device: se succede,
-    // scendiamo al fallback in memoria invece di bloccare tutto il bootstrap.
-    await db.runAsync('PRAGMA foreign_keys = ON')
-    await db.runAsync(CREATE_VEHICLES)
-    await db.runAsync(CREATE_REFUELS)
-    await db.runAsync(CREATE_MAINTENANCE)
-    await db.runAsync('PRAGMA journal_mode = WAL').catch((error) => {
-      console.warn('[db] WAL non disponibile, continuo senza WAL:', error)
-    })
+    await adapter.execAsync('PRAGMA journal_mode = WAL;')
+    await adapter.execAsync('PRAGMA foreign_keys = ON;')
+    await adapter.execAsync(CREATE_VEHICLES)
+    await adapter.execAsync(CREATE_REFUELS)
+    await adapter.execAsync(CREATE_MAINTENANCE)
+    await adapter.execAsync(CREATE_TRIPS)
 
-    _db = db as AppDatabase
-    _isFallbackDb = false
+    _db = adapter
+    _dbMode = 'sqlite'
   } catch (error) {
-    console.error('[db] SQLite non disponibile, passo al fallback in memoria:', error)
-    _db = new MemoryDatabase()
-    _isFallbackDb = true
+    console.error('[db] sqlite unavailable, fallback to memory:', error)
+    const memory = createMemoryAdapter()
+
+    await memory.execAsync(CREATE_VEHICLES)
+    await memory.execAsync(CREATE_REFUELS)
+    await memory.execAsync(CREATE_MAINTENANCE)
+    await memory.execAsync(CREATE_TRIPS)
+
+    _db = memory
+    _dbMode = 'memory'
   }
 }
 
-class MemoryDatabase implements AppDatabase {
-  private tables: Record<'vehicles' | 'refuels' | 'maintenance', Row[]> = {
+function createSqliteAdapter(db: SQLite.SQLiteDatabase): AppDatabase {
+  return {
+    execAsync: async (sql) => {
+      await db.execAsync(sql)
+    },
+    runAsync: async (sql, params = []) => {
+      await db.runAsync(sql, params as unknown as SQLite.SQLiteBindParams)
+    },
+    getAllAsync: async <T>(sql: string, params: SqlValue[] = []) => {
+      return db.getAllAsync<T>(sql, params as unknown as SQLite.SQLiteBindParams)
+    },
+  }
+}
+
+function createMemoryAdapter(): AppDatabase {
+  const tables: MemoryTables = {
     vehicles: [],
     refuels: [],
     maintenance: [],
+    trips: [],
   }
 
-  async runAsync(source: string, params: unknown[] = []): Promise<unknown> {
-    const sql = normalizeSql(source)
-
-    if (sql.startsWith('pragma ') || sql.startsWith('create table if not exists')) {
+  return {
+    execAsync: async (_sql) => {
       return
-    }
+    },
 
-    if (sql.startsWith('insert into vehicles')) {
-      this.insert('vehicles', vehicleRowFromInsert(params))
-      return
-    }
+    runAsync: async (sql, params = []) => {
+      const normalized = normalizeSql(sql)
 
-    if (sql.startsWith('insert or replace into vehicles')) {
-      this.upsert('vehicles', vehicleRowFromSync(params))
-      return
-    }
-
-    if (sql.startsWith('update vehicles set brand=')) {
-      const id = String(params[10])
-      this.updateById('vehicles', id, {
-        brand: params[0],
-        model: params[1],
-        year: params[2],
-        displacement_cc: params[3],
-        tank_capacity_l: params[4],
-        odometer_start_km: params[5],
-        fuel_type: params[6],
-        nickname: params[7],
-        color_hex: params[8],
-        updated_at: params[9],
-        sync_pending: 1,
-      })
-      return
-    }
-
-    if (sql.startsWith('update vehicles set sync_pending=0 where id=?')) {
-      this.updateById('vehicles', String(params[0]), { sync_pending: 0 })
-      return
-    }
-
-    if (sql.startsWith('delete from vehicles where id=?')) {
-      this.deleteWhere('vehicles', row => row.id === params[0])
-      return
-    }
-
-    if (sql.startsWith('insert into refuels')) {
-      this.insert('refuels', refuelRowFromInsert(params))
-      return
-    }
-
-    if (sql.startsWith('insert or replace into refuels')) {
-      this.upsert('refuels', refuelRowFromSync(params))
-      return
-    }
-
-    if (sql.startsWith('update refuels set sync_pending=0 where id=?')) {
-      this.updateById('refuels', String(params[0]), { sync_pending: 0 })
-      return
-    }
-
-    if (sql.startsWith('delete from refuels where id=?')) {
-      this.deleteWhere('refuels', row => row.id === params[0])
-      return
-    }
-
-    if (sql.startsWith('delete from refuels where vehicle_id=?')) {
-      this.deleteWhere('refuels', row => row.vehicle_id === params[0])
-      return
-    }
-
-    if (sql.startsWith('insert into maintenance')) {
-      this.insert('maintenance', maintenanceRowFromInsert(params))
-      return
-    }
-
-    if (sql.startsWith('insert or replace into maintenance')) {
-      this.upsert('maintenance', maintenanceRowFromSync(params))
-      return
-    }
-
-    if (sql.startsWith('update maintenance set sync_pending=0 where id=?')) {
-      this.updateById('maintenance', String(params[0]), { sync_pending: 0 })
-      return
-    }
-
-    if (sql.startsWith('delete from maintenance where id=?')) {
-      this.deleteWhere('maintenance', row => row.id === params[0])
-      return
-    }
-
-    if (sql.startsWith('delete from maintenance where vehicle_id=?')) {
-      this.deleteWhere('maintenance', row => row.vehicle_id === params[0])
-      return
-    }
-
-    console.warn('[db-memory] query non gestita:', source)
-  }
-
-  async getAllAsync<T>(source: string, params: unknown[] = []): Promise<T[]> {
-    const sql = normalizeSql(source)
-
-    if (sql.startsWith('select * from vehicles where user_id = ? and is_active = 1')) {
-      const userId = String(params[0])
-      return this.tables.vehicles
-        .filter(row => row.user_id === userId && Number(row.is_active) === 1)
-        .sort(descByCreatedAt)
-        .map(row => ({ ...row })) as T[]
-    }
-
-    if (sql.startsWith('select * from refuels where vehicle_id=?')) {
-      const vehicleId = String(params[0])
-      return this.tables.refuels
-        .filter(row => row.vehicle_id === vehicleId)
-        .sort((a, b) => Number(b.odometer_km) - Number(a.odometer_km))
-        .map(row => ({ ...row })) as T[]
-    }
-
-    if (sql.startsWith('select * from maintenance where vehicle_id=?')) {
-      const vehicleId = String(params[0])
-      return this.tables.maintenance
-        .filter(row => row.vehicle_id === vehicleId)
-        .sort(descByCreatedAt)
-        .map(row => ({ ...row })) as T[]
-    }
-
-    console.warn('[db-memory] select non gestita:', source)
-    return []
-  }
-
-  private insert(table: keyof MemoryDatabase['tables'], row: Row) {
-    this.tables[table].unshift(row)
-  }
-
-  private upsert(table: keyof MemoryDatabase['tables'], row: Row) {
-    const index = this.tables[table].findIndex(item => item.id === row.id)
-    if (index >= 0) {
-      this.tables[table][index] = row
-    } else {
-      this.tables[table].unshift(row)
-    }
-  }
-
-  private updateById(table: keyof MemoryDatabase['tables'], id: string, patch: Row) {
-    const index = this.tables[table].findIndex(item => item.id === id)
-    if (index >= 0) {
-      this.tables[table][index] = {
-        ...this.tables[table][index],
-        ...patch,
+      if (normalized.startsWith('insert into') || normalized.startsWith('insert or replace into')) {
+        insertRow(tables, normalized, params)
+        return
       }
-    }
-  }
 
-  private deleteWhere(table: keyof MemoryDatabase['tables'], predicate: (row: Row) => boolean) {
-    this.tables[table] = this.tables[table].filter(row => !predicate(row))
+      if (normalized.startsWith('update')) {
+        updateRows(tables, normalized, params)
+        return
+      }
+
+      if (normalized.startsWith('delete from')) {
+        deleteRows(tables, normalized, params)
+      }
+    },
+
+    getAllAsync: async <T>(sql: string, params: SqlValue[] = []) => {
+      return selectRows<T>(tables, normalizeSql(sql), params)
+    },
   }
 }
 
@@ -215,122 +125,109 @@ function normalizeSql(sql: string): string {
   return sql.replace(/\s+/g, ' ').trim().toLowerCase()
 }
 
-function descByCreatedAt(a: Row, b: Row): number {
-  return String(b.created_at).localeCompare(String(a.created_at))
+function getTableName(sql: string): TableName {
+  const match =
+    sql.match(/(?:insert(?: or replace)? into|update|delete from|from)\s+(vehicles|refuels|maintenance|trips)/i)
+
+  if (!match) {
+    throw new Error(`SQL non supportato dal fallback in memoria: ${sql}`)
+  }
+
+  return match[1] as TableName
 }
 
-function vehicleRowFromInsert(params: unknown[]): Row {
-  return {
-    id: params[0],
-    user_id: params[1],
-    brand: params[2],
-    model: params[3],
-    year: params[4],
-    displacement_cc: params[5],
-    tank_capacity_l: params[6],
-    odometer_start_km: params[7],
-    fuel_type: params[8],
-    nickname: params[9],
-    color_hex: params[10],
-    is_active: params[11],
-    created_at: params[12],
-    updated_at: params[13],
-    sync_pending: 1,
+function insertRow(tables: MemoryTables, sql: string, params: SqlValue[]): void {
+  const table = getTableName(sql)
+  const columnsMatch = sql.match(/\(([^)]+)\)\s+values/i)
+
+  if (!columnsMatch) {
+    throw new Error(`INSERT non supportato dal fallback in memoria: ${sql}`)
+  }
+
+  const columns = columnsMatch[1].split(',').map((column) => column.trim())
+  const row: Record<string, SqlValue> = {}
+
+  columns.forEach((column, index) => {
+    row[column] = params[index] ?? null
+  })
+
+  const existingIndex = tables[table].findIndex((item) => item.id === row.id)
+  if (existingIndex >= 0) {
+    tables[table][existingIndex] = row
+  } else {
+    tables[table].push(row)
   }
 }
 
-function vehicleRowFromSync(params: unknown[]): Row {
-  return {
-    id: params[0],
-    user_id: params[1],
-    brand: params[2],
-    model: params[3],
-    year: params[4],
-    displacement_cc: params[5],
-    tank_capacity_l: params[6],
-    odometer_start_km: params[7],
-    fuel_type: params[8],
-    nickname: params[9],
-    color_hex: params[10],
-    is_active: params[11],
-    created_at: params[12],
-    updated_at: params[13],
-    sync_pending: 0,
+function updateRows(tables: MemoryTables, sql: string, params: SqlValue[]): void {
+  const table = getTableName(sql)
+  const updateMatch = sql.match(/set\s+(.+)\s+where\s+(\w+)=\?/i)
+
+  if (!updateMatch) {
+    throw new Error(`UPDATE non supportato dal fallback in memoria: ${sql}`)
   }
+
+  const assignments = updateMatch[1].split(',').map((part) => part.trim())
+  const whereField = updateMatch[2]
+  const whereValue = params[assignments.length]
+
+  const nextValues = Object.fromEntries(
+    assignments.map((assignment, index) => [assignment.split('=')[0].trim(), params[index] ?? null]),
+  )
+
+  tables[table] = tables[table].map((row) =>
+    row[whereField] === whereValue
+      ? { ...row, ...nextValues }
+      : row,
+  )
 }
 
-function refuelRowFromInsert(params: unknown[]): Row {
-  return {
-    id: params[0],
-    user_id: params[1],
-    vehicle_id: params[2],
-    date: params[3],
-    odometer_km: params[4],
-    liters: params[5],
-    amount_eur: params[6],
-    is_full_tank: params[7],
-    notes: params[8],
-    km_driven: params[9],
-    km_per_liter: params[10],
-    cost_per_km: params[11],
-    created_at: params[12],
-    updated_at: params[13],
-    sync_pending: 1,
+function deleteRows(tables: MemoryTables, sql: string, params: SqlValue[]): void {
+  const table = getTableName(sql)
+  const deleteMatch = sql.match(/where\s+(\w+)=\?/i)
+
+  if (!deleteMatch) {
+    throw new Error(`DELETE non supportato dal fallback in memoria: ${sql}`)
   }
+
+  const whereField = deleteMatch[1]
+  const whereValue = params[0]
+
+  tables[table] = tables[table].filter((row) => row[whereField] !== whereValue)
 }
 
-function refuelRowFromSync(params: unknown[]): Row {
-  return {
-    id: params[0],
-    user_id: params[1],
-    vehicle_id: params[2],
-    date: params[3],
-    odometer_km: params[4],
-    liters: params[5],
-    amount_eur: params[6],
-    is_full_tank: params[7],
-    notes: params[8],
-    km_driven: params[9],
-    km_per_liter: params[10],
-    cost_per_km: params[11],
-    created_at: params[12],
-    updated_at: params[13],
-    sync_pending: 0,
+function selectRows<T>(tables: MemoryTables, sql: string, params: SqlValue[]): T[] {
+  const table = getTableName(sql)
+  const whereMatch = sql.match(/where\s+(\w+)\s*=\s*\?/i)
+  const orderMatch = sql.match(/order by\s+(\w+)\s+(asc|desc)/i)
+
+  let rows = [...tables[table]]
+
+  if (whereMatch) {
+    const whereField = whereMatch[1]
+    rows = rows.filter((row) => row[whereField] === params[0])
   }
+
+  if (sql.includes('is_active = 1')) {
+    rows = rows.filter((row) => row.is_active === 1)
+  }
+
+  if (orderMatch) {
+    const orderField = orderMatch[1]
+    const direction = orderMatch[2]
+
+    rows.sort((a, b) => compareValues(a[orderField], b[orderField], direction))
+  }
+
+  return rows as T[]
 }
 
-function maintenanceRowFromInsert(params: unknown[]): Row {
-  return {
-    id: params[0],
-    user_id: params[1],
-    vehicle_id: params[2],
-    type: params[3],
-    label: params[4],
-    last_date: params[5],
-    last_km: params[6],
-    interval_km: params[7],
-    interval_months: params[8],
-    notes: params[9],
-    created_at: params[10],
-    updated_at: params[11],
-    sync_pending: 1,
-  }
-}
+function compareValues(a: SqlValue, b: SqlValue, direction: string): number {
+  if (a == null && b == null) return 0
+  if (a == null) return direction === 'desc' ? 1 : -1
+  if (b == null) return direction === 'desc' ? -1 : 1
 
-function maintenanceRowFromSync(params: unknown[]): Row {
-  return {
-    id: params[0],
-    user_id: params[1],
-    vehicle_id: params[2],
-    type: params[3],
-    label: params[4],
-    last_date: params[5],
-    last_km: params[6],
-    interval_km: params[7],
-    interval_months: params[8],
-    notes: params[9],
-    created_at: params[10],
-    updated_at: params[11],
-    sync_pending: 0,
-  }
+  if (a > b) return direction === 'desc' ? -1 : 1
+  if (a < b) return direction === 'desc' ? 1 : -1
+  return 0
 }

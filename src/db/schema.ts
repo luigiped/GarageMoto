@@ -1,6 +1,4 @@
-// Stesse colonne di Supabase + sync_pending per offline-first
-// sync_pending: 0 = sincronizzato, 1 = da inviare a Supabase
-
+// R1.0
 export const CREATE_VEHICLES = `
   CREATE TABLE IF NOT EXISTS vehicles (
     id TEXT PRIMARY KEY,
@@ -52,6 +50,26 @@ export const CREATE_MAINTENANCE = `
     last_km INTEGER,
     interval_km INTEGER,
     interval_months INTEGER,
+    notes TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    sync_pending INTEGER NOT NULL DEFAULT 0
+  )
+`
+
+// R1.1 - aggiunta tabella viaggi GPS
+export const CREATE_TRIPS = `
+  CREATE TABLE IF NOT EXISTS trips (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    vehicle_id TEXT NOT NULL,
+    start_time TEXT NOT NULL,
+    end_time TEXT NOT NULL,
+    distance_km REAL NOT NULL,
+    duration_minutes INTEGER NOT NULL,
+    avg_speed_kmh REAL NOT NULL,
+    max_speed_kmh REAL NOT NULL,
+    route_json TEXT NOT NULL,
     notes TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,

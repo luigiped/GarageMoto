@@ -10,6 +10,7 @@ import {
   supabase,
 } from '../src/services/supabase'
 import { colors, font, spacing } from '../src/theme'
+import '../src/services/autoTrip'
 
 export default function RootLayout() {
   const { setSession } = useAuthStore()
