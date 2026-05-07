@@ -2,7 +2,7 @@
   "expo": {
     "name": "GarageMoto",
     "slug": "garagemoto",
-    "version": "1.0.0",
+    "version": "1.3.0",
     "orientation": "portrait",
     "scheme": "garagemoto",
     "userInterfaceStyle": "automatic",
@@ -18,6 +18,15 @@
     },
     "plugins": [
       "expo-router",
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "GarageMoto usa il GPS per registrare i tuoi percorsi.",
+          "locationWhenInUsePermission": "GarageMoto usa il GPS per registrare i tuoi percorsi.",
+          "isIosBackgroundLocationEnabled": true,
+          "isAndroidBackgroundLocationEnabled": true
+        }
+      ],
       "expo-dev-client",
       [
         "expo-notifications",

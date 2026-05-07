@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react'
-import { View, Text, ScrollView, TouchableOpacity, TextInput, Alert, Switch, ActivityIndicator, StyleSheet } from 'react-native'
+import { View, Text, ScrollView, TouchableOpacity, TextInput, Alert, Switch, ActivityIndicator, StyleSheet, Image } from 'react-native'
+import * as ImagePicker from 'expo-image-picker'
 import { useRefuelStore } from '../../src/store/refuelStore'
 import { useVehicleStore } from '../../src/store/vehicleStore'
 import { useAuthStore } from '../../src/store/authStore'
 import { averageConsumption } from '../../src/utils/fuelCalculator'
+import { parseReceiptText } from '../../src/utils/receiptParser'
 import { formatEuro, formatDate, todayISO } from '../../src/utils/formatters'
 import { colors, spacing, radius, font } from '../../src/theme'
 import type { Refuel } from '../../src/types/refuel'
@@ -34,6 +36,9 @@ export default function RefuelsScreen() {
   const [amount, setAmount]   = useState('')
   const [fullTank, setFullTank] = useState(true)
   const [notes, setNotes]     = useState('')
+  const [receiptText, setReceiptText] = useState('')
+  const [receiptImageUri, setReceiptImageUri] = useState<string | null>(null)
+  const [parsingReceipt, setParsingReceipt] = useState(false)
 
   const ppl = liters && amount && parseFloat(liters) > 0
     ? (parseFloat(amount.replace(',', '.')) / parseFloat(liters.replace(',', '.'))).toFixed(3) : null
@@ -52,7 +57,62 @@ export default function RefuelsScreen() {
     })
     setSaving(false); setShowForm(false)
     setOdometer(''); setLiters(''); setAmount(''); setNotes(''); setDate(todayISO()); setFullTank(true)
+    setReceiptText(''); setReceiptImageUri(null)
     Alert.alert('Salvato!', kml ? `km/l: ${kml}` : 'Rifornimento registrato.')
+  }
+
+  async function handlePickReceiptImage() {
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync()
+      if (!permission.granted) {
+        Alert.alert('Permesso richiesto', 'Serve accesso alla galleria per allegare uno scontrino.')
+        return
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: false,
+        quality: 0.8,
+      })
+
+      if (!result.canceled) {
+        setReceiptImageUri(result.assets[0]?.uri ?? null)
+      }
+    } catch (error) {
+      console.error('[refuels] pick receipt:', error)
+      Alert.alert('Errore', 'Impossibile aprire la galleria.')
+    }
+  }
+
+  function handleApplyReceiptText() {
+    if (!receiptText.trim()) {
+      Alert.alert('OCR assistito', 'Incolla prima il testo estratto dallo scontrino.')
+      return
+    }
+
+    setParsingReceipt(true)
+    const parsed = parseReceiptText(receiptText)
+
+    if (parsed.date) {
+      setDate(parsed.date)
+    }
+    if (parsed.liters != null) {
+      setLiters(parsed.liters.toFixed(2))
+    }
+    if (parsed.amountEur != null) {
+      setAmount(parsed.amountEur.toFixed(2))
+    }
+    if (!notes.trim() && receiptImageUri) {
+      setNotes('Scontrino allegato manualmente')
+    }
+
+    setParsingReceipt(false)
+
+    if (parsed.warnings.length > 0) {
+      Alert.alert('Controlla i dati', parsed.warnings.join('\n'))
+    } else {
+      Alert.alert('Campi compilati', 'Verifica i valori riconosciuti e completa l’odometro.')
+    }
   }
 
   const avg = averageConsumption(refuels)
@@ -72,6 +132,30 @@ export default function RefuelsScreen() {
       {showForm && activeVehicle && (
         <View style={s.form}>
           <Text style={s.formTitle}>Nuovo rifornimento</Text>
+          <View style={s.receiptCard}>
+            <Text style={s.receiptTitle}>OCR scontrino (beta)</Text>
+            <Text style={s.receiptText}>
+              Seleziona uno scontrino come riferimento e incolla qui il testo estratto, ad esempio da Google Lens.
+            </Text>
+            <View style={s.receiptActions}>
+              <TouchableOpacity style={s.secondaryBtn} onPress={handlePickReceiptImage}>
+                <Text style={s.secondaryBtnText}>{receiptImageUri ? 'Cambia immagine' : 'Seleziona scontrino'}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={s.secondaryBtn} onPress={handleApplyReceiptText} disabled={parsingReceipt}>
+                <Text style={s.secondaryBtnText}>{parsingReceipt ? 'Analisi...' : 'Applica testo OCR'}</Text>
+              </TouchableOpacity>
+            </View>
+            {receiptImageUri && <Image source={{ uri: receiptImageUri }} style={s.receiptPreview} />}
+            <TextInput
+              style={[s.input, s.receiptInput]}
+              value={receiptText}
+              onChangeText={setReceiptText}
+              placeholder="Incolla qui il testo letto dallo scontrino"
+              placeholderTextColor={colors.textMuted}
+              multiline
+              textAlignVertical="top"
+            />
+          </View>
           <Label text="Data" />
           <TextInput style={s.input} value={date} onChangeText={setDate} placeholder="YYYY-MM-DD" placeholderTextColor={colors.textMuted} />
           <View style={{ height: spacing.sm }} />
@@ -170,6 +254,14 @@ const s = StyleSheet.create({
   form:        { backgroundColor: colors.surfaceDk, borderRadius: radius.lg, padding: spacing.md, marginBottom: spacing.lg },
   formTitle:   { fontSize: font.lg, fontWeight: '600', color: colors.textPrimary, marginBottom: spacing.md },
   input:       { backgroundColor: colors.cardDk, color: colors.textPrimary, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: 12, fontSize: font.base },
+  receiptCard: { backgroundColor: colors.cardDk, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.md },
+  receiptTitle:{ color: colors.textPrimary, fontSize: font.base, fontWeight: '600', marginBottom: 4 },
+  receiptText: { color: colors.textSecondary, fontSize: font.sm, lineHeight: 18, marginBottom: spacing.sm },
+  receiptActions: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm },
+  secondaryBtn: { flex: 1, backgroundColor: colors.surfaceDk, borderRadius: radius.md, paddingVertical: 12, alignItems: 'center', borderWidth: 1, borderColor: colors.border },
+  secondaryBtnText: { color: colors.primary, fontSize: font.sm, fontWeight: '600' },
+  receiptPreview: { width: '100%', height: 160, borderRadius: radius.md, marginBottom: spacing.sm, backgroundColor: colors.surfaceDk },
+  receiptInput: { minHeight: 110, paddingTop: 12 },
   row:         { flexDirection: 'row', alignItems: 'center' },
   switchRow:   { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   pplBox:      { backgroundColor: 'rgba(232,97,26,0.1)', borderRadius: radius.sm, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, marginTop: spacing.sm },
