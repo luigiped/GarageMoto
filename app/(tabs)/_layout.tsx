@@ -49,13 +49,17 @@ export default function TabsLayout() {
       screenOptions={{
         headerShown: false,
         tabBarStyle: {
-          backgroundColor: colors.surfaceDk,
-          borderTopColor: colors.border,
+          backgroundColor: colors.bgElevated,
+          borderTopColor: 'rgba(255,255,255,0.08)',
           borderTopWidth: 1,
+          height: 84,
+          paddingTop: 10,
+          paddingBottom: 12,
         },
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.textMuted,
-        tabBarLabelStyle: { fontSize: 10 },
+        tabBarLabelStyle: { fontSize: 10, fontWeight: '700' },
+        tabBarItemStyle: { borderRadius: 18, marginHorizontal: 2 },
       }}
     >
       <Tabs.Screen name="index"       options={{ title: 'Home',         tabBarIcon: ({ focused }) => icon('home', focused) }} />

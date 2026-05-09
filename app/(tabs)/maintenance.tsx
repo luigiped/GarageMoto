@@ -1,12 +1,17 @@
 import { useEffect, useState } from 'react'
-import { View, Text, ScrollView, TouchableOpacity, TextInput, Alert, ActivityIndicator, StyleSheet } from 'react-native'
-import { useMaintenanceStore } from '../../src/store/maintenanceStore'
-import { useVehicleStore } from '../../src/store/vehicleStore'
-import { useRefuelStore } from '../../src/store/refuelStore'
+import { Alert, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
+import { ActionButton } from '../../src/components/ui/ActionButton'
+import { AppScreen } from '../../src/components/ui/AppScreen'
+import { Panel } from '../../src/components/ui/Panel'
+import { ScreenHeader } from '../../src/components/ui/ScreenHeader'
+import { StatusPill } from '../../src/components/ui/StatusPill'
 import { useAuthStore } from '../../src/store/authStore'
-import { getStatus, kmUntilDue, daysUntilDue } from '../../src/utils/maintenanceChecker'
-import { MAINTENANCE_LABELS, MAINTENANCE_ICONS, type MaintenanceType } from '../../src/types/maintenance'
-import { colors, spacing, radius, font } from '../../src/theme'
+import { useMaintenanceStore } from '../../src/store/maintenanceStore'
+import { useRefuelStore } from '../../src/store/refuelStore'
+import { useVehicleStore } from '../../src/store/vehicleStore'
+import { colors, designPreset, font, radius, spacing } from '../../src/theme'
+import { MAINTENANCE_ICONS, MAINTENANCE_LABELS, type MaintenanceType } from '../../src/types/maintenance'
+import { daysUntilDue, getStatus, kmUntilDue } from '../../src/utils/maintenanceChecker'
 
 const TYPES = Object.entries(MAINTENANCE_LABELS) as [MaintenanceType, string][]
 
@@ -17,144 +22,335 @@ export default function MaintenanceScreen() {
   const { items, loadMaintenance, addMaintenance, deleteMaintenance } = useMaintenanceStore()
   const [showForm, setShowForm] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [type, setType]               = useState<MaintenanceType>('oil_change')
-  const [label, setLabel]             = useState('')
-  const [lastDate, setLastDate]       = useState('')
-  const [lastKm, setLastKm]           = useState('')
-  const [intervalKm, setIntervalKm]   = useState('')
-  const [intervalMonths, setIM]       = useState('')
+  const [type, setType] = useState<MaintenanceType>('oil_change')
+  const [label, setLabel] = useState('')
+  const [lastDate, setLastDate] = useState('')
+  const [lastKm, setLastKm] = useState('')
+  const [intervalKm, setIntervalKm] = useState('')
+  const [intervalMonths, setIntervalMonths] = useState('')
 
   const currentKm = refuels[0]?.odometer_km ?? activeVehicle?.odometer_start_km ?? 0
+  const overdueCount = items.filter((item) => getStatus(item, currentKm) === 'overdue').length
+  const warningCount = items.filter((item) => getStatus(item, currentKm) === 'warning').length
+  const okCount = items.filter((item) => getStatus(item, currentKm) === 'ok').length
+  const nextItem = items[0]
 
-  useEffect(() => { if (activeVehicle?.id) loadMaintenance(activeVehicle.id) }, [activeVehicle?.id])
+  useEffect(() => {
+    if (activeVehicle?.id) {
+      loadMaintenance(activeVehicle.id)
+    }
+  }, [activeVehicle?.id, loadMaintenance])
 
   async function handleAdd() {
-    if (!intervalKm && !intervalMonths) { Alert.alert('Errore', 'Inserisci almeno un intervallo (km o mesi).'); return }
-    if (type === 'custom' && !label.trim()) { Alert.alert('Errore', 'Inserisci una descrizione.'); return }
-    if (!activeVehicle || !user?.id) return
+    if (!intervalKm && !intervalMonths) {
+      Alert.alert('Errore', 'Inserisci almeno un intervallo in km o in mesi.')
+      return
+    }
+    if (type === 'custom' && !label.trim()) {
+      Alert.alert('Errore', 'Per il tipo personalizzato serve una descrizione.')
+      return
+    }
+    if (!activeVehicle || !user?.id) {
+      return
+    }
+
     setSaving(true)
     await addMaintenance({
-      user_id: user.id, vehicle_id: activeVehicle.id, type,
+      user_id: user.id,
+      vehicle_id: activeVehicle.id,
+      type,
       label: type === 'custom' ? label.trim() : undefined,
-      last_date: lastDate || undefined, last_km: lastKm ? parseInt(lastKm) : undefined,
-      interval_km: intervalKm ? parseInt(intervalKm) : undefined,
-      interval_months: intervalMonths ? parseInt(intervalMonths) : undefined,
+      last_date: lastDate || undefined,
+      last_km: lastKm ? Number.parseInt(lastKm, 10) : undefined,
+      interval_km: intervalKm ? Number.parseInt(intervalKm, 10) : undefined,
+      interval_months: intervalMonths ? Number.parseInt(intervalMonths, 10) : undefined,
     }, currentKm)
-    setSaving(false); setShowForm(false)
-    setLabel(''); setLastDate(''); setLastKm(''); setIntervalKm(''); setIM(''); setType('oil_change')
-    Alert.alert('✅', 'Intervento salvato!')
+    setSaving(false)
+    setShowForm(false)
+    setType('oil_change')
+    setLabel('')
+    setLastDate('')
+    setLastKm('')
+    setIntervalKm('')
+    setIntervalMonths('')
+    Alert.alert('Intervento salvato', 'La scadenza e ora monitorata nel cruscotto.')
   }
 
   return (
-    <ScrollView style={s.root} contentContainerStyle={s.content}>
-      <View style={s.header}>
-        <Text style={s.title}>Manutenzione</Text>
-        <TouchableOpacity style={s.btn} onPress={() => setShowForm(!showForm)}>
-          <Text style={s.btnText}>{showForm ? 'Annulla' : '+ Aggiungi'}</Text>
-        </TouchableOpacity>
-      </View>
+    <AppScreen>
+      <ScreenHeader
+        eyebrow="Service"
+        title="Manutenzione"
+        subtitle="Scadenze, priorita e prossimo service in una vista piu tecnica."
+      />
 
-      {!activeVehicle && <Text style={s.noVehicle}>Seleziona prima un veicolo dal Garage.</Text>}
-
-      {showForm && activeVehicle && (
-        <View style={s.form}>
-          <Text style={s.formTitle}>Nuovo intervento</Text>
-          <Text style={s.label}>Tipo intervento</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: spacing.md }}>
-            <View style={{ flexDirection: 'row', gap: spacing.sm }}>
-              {TYPES.map(([t, l]) => (
-                <TouchableOpacity key={t} style={[s.chip, type === t && s.chipActive]} onPress={() => setType(t)}>
-                  <Text style={{ color: type === t ? '#fff' : colors.textSecondary, fontSize: font.sm }}>
-                    {MAINTENANCE_ICONS[t]} {l}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </ScrollView>
-          {type === 'custom' && <><Text style={s.label}>Descrizione *</Text>
-            <TextInput style={[s.input, { marginBottom: spacing.sm }]} value={label} onChangeText={setLabel} placeholder="es. Sostituzione pastiglie" placeholderTextColor={colors.textMuted} /></>}
-          <Text style={s.label}>Data ultimo intervento</Text>
-          <TextInput style={[s.input, { marginBottom: spacing.sm }]} value={lastDate} onChangeText={setLastDate} placeholder="YYYY-MM-DD" placeholderTextColor={colors.textMuted} />
-          <Text style={s.label}>Km ultimo intervento</Text>
-          <TextInput style={[s.input, { marginBottom: spacing.sm }]} value={lastKm} onChangeText={setLastKm} placeholder="es. 12000" placeholderTextColor={colors.textMuted} keyboardType="numeric" />
-          <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.md }}>
-            <View style={{ flex: 1 }}>
-              <Text style={s.label}>Intervallo (km)</Text>
-              <TextInput style={s.input} value={intervalKm} onChangeText={setIntervalKm} placeholder="es. 5000" placeholderTextColor={colors.textMuted} keyboardType="numeric" />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={s.label}>Intervallo (mesi)</Text>
-              <TextInput style={s.input} value={intervalMonths} onChangeText={setIM} placeholder="es. 12" placeholderTextColor={colors.textMuted} keyboardType="numeric" />
-            </View>
-          </View>
-          <TouchableOpacity style={s.btn} onPress={handleAdd} disabled={saving}>
-            {saving ? <ActivityIndicator color="#fff" /> : <Text style={s.btnText}>Salva intervento</Text>}
-          </TouchableOpacity>
-        </View>
-      )}
-
-      {items.length === 0 && !showForm ? (
-        <View style={s.center}>
-          <Text style={{ fontSize: 48, marginBottom: spacing.md }}>🔧</Text>
-          <Text style={s.emptyTitle}>Nessun intervento</Text>
-          <Text style={{ color: colors.textSecondary, textAlign: 'center' }}>Aggiungi le scadenze di manutenzione.</Text>
-        </View>
+      {!activeVehicle ? (
+        <Panel title="Veicolo richiesto" subtitle="Seleziona prima una moto dal Garage per associare gli interventi di manutenzione.">
+          <Text style={styles.centerIcon}>🔧</Text>
+        </Panel>
       ) : (
-        items.map(item => {
-          const status = getStatus(item, currentKm)
-          const kmLeft = kmUntilDue(item, currentKm)
-          const dLeft  = daysUntilDue(item)
-          const displayLabel = item.label ?? MAINTENANCE_LABELS[item.type]
-          const statusColor = status === 'overdue' ? colors.error : status === 'warning' ? colors.warning : colors.success
-          const statusLabel = status === 'overdue' ? 'Scaduto' : status === 'warning' ? 'In scadenza' : 'OK'
-          return (
-            <View key={item.id} style={[s.card, { borderColor: status !== 'ok' ? statusColor : 'transparent' }]}>
-              <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 4 }}>
-                <Text style={{ fontSize: font.base, color: colors.textPrimary, fontWeight: '600', flex: 1 }}>
-                  {MAINTENANCE_ICONS[item.type]} {displayLabel}
-                </Text>
-                <View style={[s.badge, { backgroundColor: `${statusColor}22` }]}>
-                  <Text style={{ color: statusColor, fontSize: font.sm, fontWeight: '500' }}>{statusLabel}</Text>
+        <>
+          {designPreset === 'glass' ? (
+            <Panel
+              tone="default"
+              title={`${activeVehicle.brand} ${activeVehicle.model}`}
+              subtitle={nextItem ? `Prossimo focus: ${nextItem.label ?? MAINTENANCE_LABELS[nextItem.type]}` : 'Nessuna scadenza ancora registrata.'}
+            >
+              <View style={styles.summaryGrid}>
+                <View style={styles.summaryCell}>
+                  <Text style={styles.summaryValue}>{overdueCount}</Text>
+                  <Text style={styles.summaryLabel}>scaduti</Text>
+                </View>
+                <View style={styles.summaryCell}>
+                  <Text style={styles.summaryValue}>{warningCount}</Text>
+                  <Text style={styles.summaryLabel}>warning</Text>
+                </View>
+                <View style={styles.summaryCell}>
+                  <Text style={styles.summaryValue}>{okCount}</Text>
+                  <Text style={styles.summaryLabel}>ok</Text>
+                </View>
+                <View style={styles.summaryCell}>
+                  <Text style={styles.summaryValue}>{items.length}</Text>
+                  <Text style={styles.summaryLabel}>item attivi</Text>
                 </View>
               </View>
-              {kmLeft != null && (
-                <Text style={s.cardInfo}>{kmLeft > 0 ? `${kmLeft} km al prossimo` : `${Math.abs(kmLeft)} km oltre la scadenza`}</Text>
+            </Panel>
+          ) : null}
+
+          <View style={styles.topCtaWrap}>
+            <ActionButton
+              label={showForm ? 'Chiudi inserimento' : 'Aggiungi intervento'}
+              variant={showForm ? 'secondary' : 'primary'}
+              onPress={() => setShowForm((prev) => !prev)}
+            />
+          </View>
+
+          {showForm && (
+            <Panel
+              tone="hero"
+              title="Nuova scadenza manutenzione"
+              subtitle="Puoi usare intervallo in km, in mesi oppure entrambi."
+            >
+              <Text style={styles.sectionLabel}>Tipo intervento</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipsScroll}>
+                <View style={styles.chipsRow}>
+                  {TYPES.map(([key, value]) => (
+                    <TouchableOpacity
+                      key={key}
+                      style={[styles.chip, type === key && styles.chipActive]}
+                      onPress={() => setType(key)}
+                    >
+                      <Text style={[styles.chipText, type === key && styles.chipTextActive]}>
+                        {MAINTENANCE_ICONS[key]} {value}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </ScrollView>
+
+              {type === 'custom' && (
+                <FormField label="Descrizione *" value={label} onChange={setLabel} placeholder="es. Sostituzione pastiglie" />
               )}
-              {dLeft != null && (
-                <Text style={s.cardInfo}>{dLeft > 0 ? `${dLeft} giorni alla scadenza` : `Scaduto da ${Math.abs(dLeft)} giorni`}</Text>
-              )}
-              <TouchableOpacity style={{ alignSelf: 'flex-end', marginTop: spacing.sm }}
-                onPress={() => Alert.alert('Elimina', `Eliminare "${displayLabel}"?`, [
-                  { text: 'Annulla', style: 'cancel' },
-                  { text: 'Elimina', style: 'destructive', onPress: () => deleteMaintenance(item.id) },
-                ])}>
-                <Text style={{ color: colors.error, fontSize: font.sm }}>Elimina</Text>
-              </TouchableOpacity>
-            </View>
-          )
-        })
+              <FormField label="Data ultimo intervento" value={lastDate} onChange={setLastDate} placeholder="YYYY-MM-DD" />
+              <FormField label="Km ultimo intervento" value={lastKm} onChange={setLastKm} placeholder="12000" numeric />
+              <View style={styles.splitRow}>
+                <View style={styles.splitCol}>
+                  <FormField label="Intervallo km" value={intervalKm} onChange={setIntervalKm} placeholder="5000" numeric />
+                </View>
+                <View style={styles.splitCol}>
+                  <FormField label="Intervallo mesi" value={intervalMonths} onChange={setIntervalMonths} placeholder="12" numeric />
+                </View>
+              </View>
+              <ActionButton label="Salva intervento" onPress={handleAdd} loading={saving} />
+            </Panel>
+          )}
+
+          {items.length === 0 && !showForm ? (
+            <Panel title="Nessuna scadenza registrata" subtitle="Aggiungi il primo intervento per iniziare a ricevere alert e stato service.">
+              <Text style={styles.centerIcon}>🧰</Text>
+            </Panel>
+          ) : (
+            items.map((item) => {
+              const status = getStatus(item, currentKm)
+              const kmLeft = kmUntilDue(item, currentKm)
+              const dLeft = daysUntilDue(item)
+              const displayLabel = item.label ?? MAINTENANCE_LABELS[item.type]
+              const tone = status === 'overdue' ? 'danger' : status === 'warning' ? 'warning' : 'default'
+
+              return (
+                <Panel
+                  key={item.id}
+                  tone={tone}
+                  title={`${MAINTENANCE_ICONS[item.type]} ${displayLabel}`}
+                  subtitle={buildSubtitle(kmLeft, dLeft)}
+                >
+                  <View style={styles.itemFooter}>
+                    <StatusPill
+                      label={status === 'overdue' ? 'Scaduto' : status === 'warning' ? 'In scadenza' : 'OK'}
+                      tone={status === 'overdue' ? 'danger' : status === 'warning' ? 'warning' : 'success'}
+                    />
+                    <TouchableOpacity onPress={() => confirmDelete(item.id, displayLabel, deleteMaintenance)}>
+                      <Text style={styles.deleteText}>Elimina</Text>
+                    </TouchableOpacity>
+                  </View>
+                </Panel>
+              )
+            })
+          )}
+        </>
       )}
-    </ScrollView>
+    </AppScreen>
   )
 }
 
-const s = StyleSheet.create({
-  root:      { flex: 1, backgroundColor: colors.bgDark },
-  content:   { padding: spacing.md, paddingTop: 56, paddingBottom: spacing.xl },
-  header:    { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.lg },
-  title:     { fontSize: font.xxl, fontWeight: 'bold', color: colors.textPrimary },
-  noVehicle: { color: colors.textSecondary, textAlign: 'center', paddingVertical: spacing.xl },
-  form:      { backgroundColor: colors.surfaceDk, borderRadius: radius.lg, padding: spacing.md, marginBottom: spacing.lg },
-  formTitle: { fontSize: font.lg, fontWeight: '600', color: colors.textPrimary, marginBottom: spacing.md },
-  label:     { fontSize: font.sm, color: colors.textSecondary, marginBottom: 4 },
-  input:     { backgroundColor: colors.cardDk, color: colors.textPrimary, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: 12, fontSize: font.base },
-  chip:      { paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border },
-  chipActive:{ backgroundColor: colors.primary, borderColor: colors.primary },
-  btn:       { backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: 14, alignItems: 'center' },
-  btnText:   { color: '#fff', fontWeight: '600', fontSize: font.base },
-  center:    { alignItems: 'center', paddingVertical: spacing.xl },
-  emptyTitle:{ fontSize: font.lg, fontWeight: '600', color: colors.textPrimary, marginBottom: spacing.sm },
-  card:      { backgroundColor: colors.surfaceDk, borderRadius: radius.lg, padding: spacing.md, marginBottom: spacing.sm, borderWidth: 2 },
-  badge:     { borderRadius: radius.full, paddingHorizontal: spacing.sm, paddingVertical: 2, marginLeft: spacing.sm },
-  cardInfo:  { fontSize: font.sm, color: colors.textSecondary, marginTop: 2 },
+function confirmDelete(id: string, label: string, deleteMaintenance: (id: string) => Promise<void>) {
+  Alert.alert('Elimina intervento', `Eliminare "${label}"?`, [
+    { text: 'Annulla', style: 'cancel' },
+    { text: 'Elimina', style: 'destructive', onPress: () => deleteMaintenance(id) },
+  ])
+}
+
+function buildSubtitle(kmLeft: number | null, dLeft: number | null): string {
+  const parts: string[] = []
+  if (kmLeft != null) {
+    parts.push(kmLeft > 0 ? `${kmLeft} km al prossimo service` : `${Math.abs(kmLeft)} km oltre soglia`)
+  }
+  if (dLeft != null) {
+    parts.push(dLeft > 0 ? `${dLeft} giorni residui` : `scaduto da ${Math.abs(dLeft)} giorni`)
+  }
+  return parts.join(' · ') || 'Nessuna soglia disponibile'
+}
+
+function FormField({
+  label,
+  value,
+  onChange,
+  placeholder,
+  numeric,
+}: {
+  label: string
+  value: string
+  onChange: (value: string) => void
+  placeholder?: string
+  numeric?: boolean
+}) {
+  return (
+    <View style={styles.field}>
+      <Text style={styles.label}>{label}</Text>
+      <TextInput
+        style={styles.input}
+        value={value}
+        onChangeText={onChange}
+        placeholder={placeholder}
+        placeholderTextColor={colors.textMuted}
+        keyboardType={numeric ? 'numeric' : 'default'}
+      />
+    </View>
+  )
+}
+
+const styles = StyleSheet.create({
+  centerIcon: {
+    fontSize: 52,
+    textAlign: 'center',
+  },
+  sectionLabel: {
+    color: colors.accentSoft,
+    fontSize: font.sm,
+    marginBottom: spacing.sm,
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
+  },
+  chipsScroll: {
+    marginBottom: spacing.md,
+  },
+  topCtaWrap: {
+    marginBottom: spacing.md,
+  },
+  summaryGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+  },
+  summaryCell: {
+    flex: 1,
+    minWidth: '47%',
+    borderRadius: radius.lg,
+    backgroundColor: colors.surfaceDk,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.md,
+  },
+  summaryValue: {
+    color: colors.textPrimary,
+    fontSize: font.xl,
+    fontWeight: '800',
+  },
+  summaryLabel: {
+    color: colors.textMuted,
+    fontSize: font.sm,
+    marginTop: 4,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+  },
+  chipsRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  chip: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: 10,
+    borderRadius: radius.full,
+    borderWidth: 1,
+    borderColor: colors.borderStrong,
+    backgroundColor: colors.panelRaised,
+  },
+  chipActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primaryEdge,
+  },
+  chipText: {
+    color: colors.textSecondary,
+    fontSize: font.sm,
+    fontWeight: '600',
+  },
+  chipTextActive: {
+    color: '#fff',
+  },
+  field: {
+    marginBottom: spacing.md,
+  },
+  label: {
+    color: colors.textSecondary,
+    fontSize: font.sm,
+    marginBottom: 6,
+  },
+  input: {
+    backgroundColor: colors.cardDk,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    color: colors.textPrimary,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 14,
+    fontSize: font.base,
+  },
+  splitRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  splitCol: {
+    flex: 1,
+  },
+  itemFooter: {
+    marginTop: spacing.sm,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  deleteText: {
+    color: colors.error,
+    fontSize: font.sm,
+    fontWeight: '700',
+  },
 })

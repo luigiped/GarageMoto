@@ -3,13 +3,21 @@
   "version": "1.3.0",
   "main": "expo-router/entry",
   "scripts": {
-    "start": "expo start",
-    "android": "expo start --android",
+    "start": "node scripts/start-expo.js",
+    "start:dev-client": "node scripts/start-expo.js --dev-client --clear",
+    "android": "node scripts/start-expo.js --android",
+    "deps:doctor": "node scripts/expo-install-health.js",
+    "deps:repair": "node scripts/expo-install-health.js --fix",
+    "deps:reset": "node scripts/reset-workspace.js",
     "test": "jest",
     "lint": "expo lint",
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
+    "@expo/config": "^12.0.13",
+    "@expo/config-plugins": "^54.0.4",
+    "@expo/json-file": "^10.0.14",
+    "@expo/plist": "^0.4.8",
     "@expo/vector-icons": "^15.0.0",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@supabase/supabase-js": "^2.43.0",

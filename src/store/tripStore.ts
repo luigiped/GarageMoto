@@ -43,14 +43,16 @@ export const useTripStore = create<TripStore>((set, get) => ({
       await db.runAsync(
         `INSERT INTO trips
          (id,user_id,vehicle_id,start_time,end_time,distance_km,
-          duration_minutes,avg_speed_kmh,max_speed_kmh,route_json,
+          duration_minutes,avg_speed_kmh,max_speed_kmh,max_lean_angle_deg,
+          max_lean_left_deg,max_lean_right_deg,max_braking_g,route_json,
           notes,created_at,updated_at,sync_pending)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,1)`,
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)`,
         [
           trip.id, trip.user_id, trip.vehicle_id, trip.start_time,
           trip.end_time, trip.distance_km, trip.duration_minutes,
-          trip.avg_speed_kmh, trip.max_speed_kmh, trip.route_json,
-          trip.notes ?? null, trip.created_at, trip.updated_at,
+          trip.avg_speed_kmh, trip.max_speed_kmh, trip.max_lean_angle_deg ?? null,
+          trip.max_lean_left_deg ?? null, trip.max_lean_right_deg ?? null, trip.max_braking_g ?? null,
+          trip.route_json, trip.notes ?? null, trip.created_at, trip.updated_at,
         ],
       )
       set({ trips: [trip, ...get().trips] })
@@ -108,12 +110,14 @@ async function _syncTrips(vehicleId: string) {
     await db.runAsync(
       `INSERT OR REPLACE INTO trips
        (id,user_id,vehicle_id,start_time,end_time,distance_km,
-        duration_minutes,avg_speed_kmh,max_speed_kmh,route_json,
+        duration_minutes,avg_speed_kmh,max_speed_kmh,max_lean_angle_deg,
+        max_lean_left_deg,max_lean_right_deg,max_braking_g,route_json,
         notes,created_at,updated_at,sync_pending)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,0)`,
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0)`,
       [
         t.id, t.user_id, t.vehicle_id, t.start_time, t.end_time,
         t.distance_km, t.duration_minutes, t.avg_speed_kmh, t.max_speed_kmh,
+        t.max_lean_angle_deg ?? null, t.max_lean_left_deg ?? null, t.max_lean_right_deg ?? null, t.max_braking_g ?? null,
         typeof t.route_json === 'string' ? t.route_json : JSON.stringify(t.route_json),
         t.notes ?? null, t.created_at, t.updated_at,
       ],

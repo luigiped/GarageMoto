@@ -229,6 +229,10 @@ async function saveSessionTrip(session: AutoTripSession): Promise<void> {
     duration_minutes: validated.durationMinutes,
     avg_speed_kmh: Math.round(avgSpeed * 10) / 10,
     max_speed_kmh: Math.round(session.maxSpeedKmh * 10) / 10,
+    max_lean_angle_deg: null,
+    max_lean_left_deg: null,
+    max_lean_right_deg: null,
+    max_braking_g: null,
     route_json: JSON.stringify(session.points),
   }
 
@@ -248,9 +252,10 @@ async function persistTrip(data: NewTrip): Promise<Trip> {
   await db.runAsync(
     `INSERT INTO trips
      (id,user_id,vehicle_id,start_time,end_time,distance_km,
-      duration_minutes,avg_speed_kmh,max_speed_kmh,route_json,
+      duration_minutes,avg_speed_kmh,max_speed_kmh,max_lean_angle_deg,
+      max_lean_left_deg,max_lean_right_deg,max_braking_g,route_json,
       notes,created_at,updated_at,sync_pending)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,1)`,
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)`,
     [
       trip.id,
       trip.user_id,
@@ -261,6 +266,10 @@ async function persistTrip(data: NewTrip): Promise<Trip> {
       trip.duration_minutes,
       trip.avg_speed_kmh,
       trip.max_speed_kmh,
+      trip.max_lean_angle_deg ?? null,
+      trip.max_lean_left_deg ?? null,
+      trip.max_lean_right_deg ?? null,
+      trip.max_braking_g ?? null,
       trip.route_json,
       trip.notes ?? null,
       trip.created_at,

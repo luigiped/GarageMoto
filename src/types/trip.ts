@@ -5,6 +5,7 @@ export interface RoutePoint {
   lng: number
   ts: number        // timestamp Unix ms
   speedKmh: number
+  leanAngleDeg?: number
 }
 
 export interface Trip {
@@ -17,6 +18,10 @@ export interface Trip {
   duration_minutes: number
   avg_speed_kmh: number
   max_speed_kmh: number
+  max_lean_angle_deg?: number | null
+  max_lean_left_deg?: number | null
+  max_lean_right_deg?: number | null
+  max_braking_g?: number | null
   route_json: string        // JSON stringificato di RoutePoint[]
   notes?: string
   created_at: string

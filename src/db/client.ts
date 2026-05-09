@@ -53,6 +53,7 @@ export async function initDb(): Promise<void> {
     await adapter.execAsync(CREATE_REFUELS)
     await adapter.execAsync(CREATE_MAINTENANCE)
     await adapter.execAsync(CREATE_TRIPS)
+    await ensureTripsPerformanceColumns(adapter)
 
     _db = adapter
     _dbMode = 'sqlite'
@@ -67,6 +68,23 @@ export async function initDb(): Promise<void> {
 
     _db = memory
     _dbMode = 'memory'
+  }
+}
+
+async function ensureTripsPerformanceColumns(db: AppDatabase): Promise<void> {
+  const migrations = [
+    'ALTER TABLE trips ADD COLUMN max_lean_angle_deg REAL',
+    'ALTER TABLE trips ADD COLUMN max_lean_left_deg REAL',
+    'ALTER TABLE trips ADD COLUMN max_lean_right_deg REAL',
+    'ALTER TABLE trips ADD COLUMN max_braking_g REAL',
+  ]
+
+  for (const sql of migrations) {
+    try {
+      await db.execAsync(sql)
+    } catch {
+      // Colonna gia presente: migration idempotente.
+    }
   }
 }
 

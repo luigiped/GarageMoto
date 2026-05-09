@@ -1,27 +1,28 @@
 import { useEffect, useState } from 'react'
-import { View, Text, ScrollView, TouchableOpacity, TextInput, Alert, Switch, ActivityIndicator, StyleSheet, Image } from 'react-native'
+import { Alert, Image, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
 import * as ImagePicker from 'expo-image-picker'
+import { ActionButton } from '../../src/components/ui/ActionButton'
+import { AppScreen } from '../../src/components/ui/AppScreen'
+import { Panel } from '../../src/components/ui/Panel'
+import { ScreenHeader } from '../../src/components/ui/ScreenHeader'
+import { StatusPill } from '../../src/components/ui/StatusPill'
+import { useAuthStore } from '../../src/store/authStore'
 import { useRefuelStore } from '../../src/store/refuelStore'
 import { useVehicleStore } from '../../src/store/vehicleStore'
-import { useAuthStore } from '../../src/store/authStore'
-import { averageConsumption } from '../../src/utils/fuelCalculator'
-import { parseReceiptText } from '../../src/utils/receiptParser'
-import { formatEuro, formatDate, todayISO } from '../../src/utils/formatters'
-import { colors, spacing, radius, font } from '../../src/theme'
+import { colors, designPreset, font, radius, spacing } from '../../src/theme'
 import type { Refuel } from '../../src/types/refuel'
+import { averageConsumption } from '../../src/utils/fuelCalculator'
+import { formatDate, formatEuro, todayISO } from '../../src/utils/formatters'
+import { parseReceiptText } from '../../src/utils/receiptParser'
 
 type Period = 'all' | '1m' | '3m' | '1y'
-const PERIODS: { value: Period; label: string }[] = [
-  { value: 'all', label: 'Tutto' }, { value: '1m', label: '1 mese' },
-  { value: '3m', label: '3 mesi' }, { value: '1y', label: '1 anno' },
-]
 
-function filterByPeriod(refuels: Refuel[], period: Period): Refuel[] {
-  if (period === 'all') return refuels
-  const days = period === '1m' ? 31 : period === '3m' ? 92 : 365
-  const cutoff = new Date(Date.now() - days * 86400000).toISOString().split('T')[0]
-  return refuels.filter(r => r.date >= cutoff)
-}
+const PERIODS: { value: Period; label: string }[] = [
+  { value: 'all', label: 'Tutto' },
+  { value: '1m', label: '1 mese' },
+  { value: '3m', label: '3 mesi' },
+  { value: '1y', label: '1 anno' },
+]
 
 export default function RefuelsScreen() {
   const { user } = useAuthStore()
@@ -30,51 +31,70 @@ export default function RefuelsScreen() {
   const [period, setPeriod] = useState<Period>('all')
   const [showForm, setShowForm] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [date, setDate]       = useState(todayISO())
+  const [date, setDate] = useState(todayISO())
   const [odometer, setOdometer] = useState('')
-  const [liters, setLiters]   = useState('')
-  const [amount, setAmount]   = useState('')
+  const [liters, setLiters] = useState('')
+  const [amount, setAmount] = useState('')
   const [fullTank, setFullTank] = useState(true)
-  const [notes, setNotes]     = useState('')
+  const [notes, setNotes] = useState('')
   const [receiptText, setReceiptText] = useState('')
   const [receiptImageUri, setReceiptImageUri] = useState<string | null>(null)
   const [parsingReceipt, setParsingReceipt] = useState(false)
 
   const ppl = liters && amount && parseFloat(liters) > 0
-    ? (parseFloat(amount.replace(',', '.')) / parseFloat(liters.replace(',', '.'))).toFixed(3) : null
+    ? (parseFloat(amount.replace(',', '.')) / parseFloat(liters.replace(',', '.'))).toFixed(3)
+    : null
 
-  useEffect(() => { if (activeVehicle?.id) loadRefuels(activeVehicle.id) }, [activeVehicle?.id])
+  useEffect(() => {
+    if (activeVehicle?.id) {
+      loadRefuels(activeVehicle.id)
+    }
+  }, [activeVehicle?.id, loadRefuels])
 
   async function handleAdd() {
-    if (!odometer || !liters || !amount) { Alert.alert('Campi mancanti', 'Compila odometro, litri e importo.'); return }
-    if (!activeVehicle || !user?.id) return
+    if (!odometer || !liters || !amount) {
+      Alert.alert('Campi mancanti', 'Compila odometro, litri e importo.')
+      return
+    }
+    if (!activeVehicle || !user?.id) {
+      return
+    }
     setSaving(true)
     const kml = await addRefuel({
-      user_id: user.id, vehicle_id: activeVehicle.id, date,
-      odometer_km: parseInt(odometer), liters: parseFloat(liters.replace(',', '.')),
-      amount_eur: parseFloat(amount.replace(',', '.')), is_full_tank: fullTank,
+      user_id: user.id,
+      vehicle_id: activeVehicle.id,
+      date,
+      odometer_km: Number.parseInt(odometer, 10),
+      liters: Number.parseFloat(liters.replace(',', '.')),
+      amount_eur: Number.parseFloat(amount.replace(',', '.')),
+      is_full_tank: fullTank,
       notes: notes.trim() || undefined,
     })
-    setSaving(false); setShowForm(false)
-    setOdometer(''); setLiters(''); setAmount(''); setNotes(''); setDate(todayISO()); setFullTank(true)
-    setReceiptText(''); setReceiptImageUri(null)
-    Alert.alert('Salvato!', kml ? `km/l: ${kml}` : 'Rifornimento registrato.')
+    setSaving(false)
+    setShowForm(false)
+    setOdometer('')
+    setLiters('')
+    setAmount('')
+    setNotes('')
+    setDate(todayISO())
+    setFullTank(true)
+    setReceiptText('')
+    setReceiptImageUri(null)
+    Alert.alert('Salvato', kml ? `Rifornimento registrato. km/l: ${kml}` : 'Rifornimento registrato.')
   }
 
   async function handlePickReceiptImage() {
     try {
       const permission = await ImagePicker.requestMediaLibraryPermissionsAsync()
       if (!permission.granted) {
-        Alert.alert('Permesso richiesto', 'Serve accesso alla galleria per allegare uno scontrino.')
+        Alert.alert('Permesso richiesto', 'Serve accesso alla galleria per selezionare lo scontrino.')
         return
       }
-
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['images'],
         allowsEditing: false,
         quality: 0.8,
       })
-
       if (!result.canceled) {
         setReceiptImageUri(result.assets[0]?.uri ?? null)
       }
@@ -89,10 +109,8 @@ export default function RefuelsScreen() {
       Alert.alert('OCR assistito', 'Incolla prima il testo estratto dallo scontrino.')
       return
     }
-
     setParsingReceipt(true)
     const parsed = parseReceiptText(receiptText)
-
     if (parsed.date) {
       setDate(parsed.date)
     }
@@ -105,7 +123,6 @@ export default function RefuelsScreen() {
     if (!notes.trim() && receiptImageUri) {
       setNotes('Scontrino allegato manualmente')
     }
-
     setParsingReceipt(false)
 
     if (parsed.warnings.length > 0) {
@@ -117,164 +134,370 @@ export default function RefuelsScreen() {
 
   const avg = averageConsumption(refuels)
   const filtered = filterByPeriod(refuels, period)
+  const totalSpend = filtered.reduce((sum, item) => sum + item.amount_eur, 0)
+  const partialCount = filtered.filter((item) => !item.is_full_tank).length
 
   return (
-    <ScrollView style={s.root} contentContainerStyle={s.content}>
-      <View style={s.header}>
-        <Text style={s.title}>Carburante</Text>
-        <TouchableOpacity style={s.btn} onPress={() => setShowForm(!showForm)}>
-          <Text style={s.btnText}>{showForm ? 'Annulla' : '+ Aggiungi'}</Text>
-        </TouchableOpacity>
-      </View>
+    <AppScreen>
+      <ScreenHeader
+        eyebrow="Fuel log"
+        title="Carburante"
+        subtitle="Timeline dei pieni, costo per litro e compilazione assistita dello scontrino."
+      />
 
-      {!activeVehicle && <Text style={s.noVehicle}>Seleziona prima un veicolo dal Garage.</Text>}
+      {!activeVehicle ? (
+        <Panel title="Veicolo richiesto" subtitle="Seleziona prima una moto dal Garage per registrare rifornimenti.">
+          <Text style={styles.centerIcon}>⛽</Text>
+        </Panel>
+      ) : (
+        <>
+          {designPreset === 'glass' ? (
+            <Panel
+              tone="hero"
+              title={`${activeVehicle.brand} ${activeVehicle.model}`}
+              subtitle="Fuel deck con consumi, spesa e stato compilazione."
+            >
+              <View style={styles.summaryGrid}>
+                <View style={styles.summaryCell}>
+                  <Text style={styles.summaryValue}>{filtered.length}</Text>
+                  <Text style={styles.summaryLabel}>record nel filtro</Text>
+                </View>
+                <View style={styles.summaryCell}>
+                  <Text style={styles.summaryValue}>{avg != null ? avg.toFixed(1) : '--'}</Text>
+                  <Text style={styles.summaryLabel}>media km/l</Text>
+                </View>
+                <View style={styles.summaryCell}>
+                  <Text style={styles.summaryValue}>{formatEuro(totalSpend)}</Text>
+                  <Text style={styles.summaryLabel}>spesa periodo</Text>
+                </View>
+                <View style={styles.summaryCell}>
+                  <Text style={styles.summaryValue}>{partialCount}</Text>
+                  <Text style={styles.summaryLabel}>parziali</Text>
+                </View>
+              </View>
+            </Panel>
+          ) : null}
 
-      {showForm && activeVehicle && (
-        <View style={s.form}>
-          <Text style={s.formTitle}>Nuovo rifornimento</Text>
-          <View style={s.receiptCard}>
-            <Text style={s.receiptTitle}>OCR scontrino (beta)</Text>
-            <Text style={s.receiptText}>
-              Seleziona uno scontrino come riferimento e incolla qui il testo estratto, ad esempio da Google Lens.
-            </Text>
-            <View style={s.receiptActions}>
-              <TouchableOpacity style={s.secondaryBtn} onPress={handlePickReceiptImage}>
-                <Text style={s.secondaryBtnText}>{receiptImageUri ? 'Cambia immagine' : 'Seleziona scontrino'}</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={s.secondaryBtn} onPress={handleApplyReceiptText} disabled={parsingReceipt}>
-                <Text style={s.secondaryBtnText}>{parsingReceipt ? 'Analisi...' : 'Applica testo OCR'}</Text>
-              </TouchableOpacity>
-            </View>
-            {receiptImageUri && <Image source={{ uri: receiptImageUri }} style={s.receiptPreview} />}
-            <TextInput
-              style={[s.input, s.receiptInput]}
-              value={receiptText}
-              onChangeText={setReceiptText}
-              placeholder="Incolla qui il testo letto dallo scontrino"
-              placeholderTextColor={colors.textMuted}
-              multiline
-              textAlignVertical="top"
+          <View style={styles.topCtaWrap}>
+            <ActionButton
+              label={showForm ? 'Chiudi inserimento' : 'Nuovo rifornimento'}
+              variant={showForm ? 'secondary' : 'primary'}
+              onPress={() => setShowForm((prev) => !prev)}
             />
           </View>
-          <Label text="Data" />
-          <TextInput style={s.input} value={date} onChangeText={setDate} placeholder="YYYY-MM-DD" placeholderTextColor={colors.textMuted} />
-          <View style={{ height: spacing.sm }} />
-          <Label text="Odometro (km) *" />
-          <TextInput style={s.input} value={odometer} onChangeText={setOdometer} placeholder="es. 12450" placeholderTextColor={colors.textMuted} keyboardType="numeric" />
-          <View style={{ height: spacing.sm }} />
-          <View style={s.row}>
-            <View style={{ flex: 1 }}>
-              <Label text="Litri *" />
-              <TextInput style={s.input} value={liters} onChangeText={setLiters} placeholder="es. 14.5" placeholderTextColor={colors.textMuted} keyboardType="decimal-pad" />
-            </View>
-            <View style={{ width: spacing.sm }} />
-            <View style={{ flex: 1 }}>
-              <Label text="Importo (€) *" />
-              <TextInput style={s.input} value={amount} onChangeText={setAmount} placeholder="es. 29.75" placeholderTextColor={colors.textMuted} keyboardType="decimal-pad" />
-            </View>
-          </View>
-          {ppl && (
-            <View style={s.pplBox}>
-              <Text style={s.pplText}>⚡ Prezzo/litro: €{ppl}</Text>
-            </View>
-          )}
-          <View style={{ height: spacing.sm }} />
-          <View style={s.switchRow}>
-            <View>
-              <Text style={{ color: colors.textPrimary, fontSize: font.base }}>Pieno completo</Text>
-              <Text style={{ color: colors.textMuted, fontSize: font.sm }}>Il km/l si calcola solo per i pieni</Text>
-            </View>
-            <Switch value={fullTank} onValueChange={setFullTank} trackColor={{ true: colors.primary }} thumbColor="#fff" />
-          </View>
-          <View style={{ height: spacing.sm }} />
-          <Label text="Note (opzionale)" />
-          <TextInput style={s.input} value={notes} onChangeText={setNotes} placeholder="es. Autogrill A1" placeholderTextColor={colors.textMuted} maxLength={200} />
-          <View style={{ height: spacing.md }} />
-          <TouchableOpacity style={s.btn} onPress={handleAdd} disabled={saving}>
-            {saving ? <ActivityIndicator color="#fff" /> : <Text style={s.btnText}>Salva rifornimento</Text>}
-          </TouchableOpacity>
-        </View>
-      )}
 
-      {refuels.length > 0 && (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: spacing.md }}>
-          <View style={{ flexDirection: 'row', gap: spacing.sm }}>
-            {PERIODS.map(p => (
-              <TouchableOpacity key={p.value} style={[s.chip, period === p.value && s.chipActive]} onPress={() => setPeriod(p.value)}>
-                <Text style={{ color: period === p.value ? '#fff' : colors.textSecondary, fontSize: font.sm }}>{p.label}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </ScrollView>
-      )}
-
-      {filtered.length === 0 && !showForm ? (
-        <View style={s.center}>
-          <Text style={{ fontSize: 48, marginBottom: spacing.md }}>⛽</Text>
-          <Text style={s.emptyTitle}>Nessun rifornimento</Text>
-          <Text style={{ color: colors.textSecondary }}>Tocca + per aggiungere il primo.</Text>
-        </View>
-      ) : (
-        filtered.map(r => {
-          const kmlColor = r.km_per_liter == null ? colors.textMuted : avg && r.km_per_liter >= avg ? colors.success : colors.warning
-          return (
-            <View key={r.id} style={s.refuelCard}>
-              <View style={[s.kmlBar, { backgroundColor: kmlColor }]} />
-              <View style={{ flex: 1 }}>
-                <View style={s.row}>
-                  <Text style={s.refuelDate}>{formatDate(r.date)}</Text>
-                  <Text style={s.refuelAmount}>{formatEuro(r.amount_eur)}</Text>
+          {showForm && (
+            <Panel tone="hero" title="Nuovo rifornimento" subtitle="Il km/l viene calcolato solo sui pieni completi.">
+              <Panel
+                title="OCR scontrino"
+                subtitle="Seleziona uno scontrino e incolla il testo estratto, ad esempio da Google Lens."
+                tone="default"
+              >
+                <View style={styles.actionsCol}>
+                  <ActionButton
+                    label={receiptImageUri ? 'Cambia immagine scontrino' : 'Seleziona scontrino'}
+                    variant="secondary"
+                    onPress={() => { void handlePickReceiptImage() }}
+                  />
+                  <ActionButton
+                    label={parsingReceipt ? 'Analisi in corso' : 'Applica testo OCR'}
+                    variant="secondary"
+                    onPress={handleApplyReceiptText}
+                    loading={parsingReceipt}
+                  />
                 </View>
-                <Text style={s.refuelInfo}>
-                  {r.odometer_km} km · {r.liters.toFixed(2)} L{r.km_per_liter ? ` · ${r.km_per_liter.toFixed(1)} km/l` : ' · parziale'}
-                </Text>
+                {receiptImageUri ? <Image source={{ uri: receiptImageUri }} style={styles.receiptPreview} /> : null}
+                <TextInput
+                  style={styles.receiptInput}
+                  value={receiptText}
+                  onChangeText={setReceiptText}
+                  placeholder="Incolla qui il testo letto dallo scontrino"
+                  placeholderTextColor={colors.textMuted}
+                  multiline
+                  textAlignVertical="top"
+                />
+              </Panel>
+
+              <FormField label="Data" value={date} onChange={setDate} placeholder="YYYY-MM-DD" />
+              <FormField label="Odometro (km) *" value={odometer} onChange={setOdometer} placeholder="12450" numeric />
+              <View style={styles.splitRow}>
+                <View style={styles.splitCol}>
+                  <FormField label="Litri *" value={liters} onChange={setLiters} placeholder="14.5" decimal />
+                </View>
+                <View style={styles.splitCol}>
+                  <FormField label="Importo (€) *" value={amount} onChange={setAmount} placeholder="29.75" decimal />
+                </View>
               </View>
-              <TouchableOpacity onPress={() => Alert.alert('Elimina', 'Sei sicuro?', [
-                { text: 'Annulla', style: 'cancel' },
-                { text: 'Elimina', style: 'destructive', onPress: () => deleteRefuel(r.id) },
-              ])}>
-                <Text style={{ color: colors.error, fontSize: 18, marginLeft: spacing.sm }}>🗑</Text>
+              {ppl ? (
+                <View style={styles.priceBox}>
+                  <Text style={styles.priceText}>Prezzo litro rilevato: €{ppl}</Text>
+                </View>
+              ) : null}
+              <TouchableOpacity
+                style={[styles.toggleRow, fullTank && styles.toggleRowActive]}
+                onPress={() => setFullTank((prev) => !prev)}
+              >
+                <View>
+                  <Text style={styles.toggleTitle}>Pieno completo</Text>
+                  <Text style={styles.toggleSub}>Attiva per consentire il calcolo corretto del km/l.</Text>
+                </View>
+                <StatusPill label={fullTank ? 'Si' : 'No'} tone={fullTank ? 'success' : 'default'} />
               </TouchableOpacity>
-            </View>
-          )
-        })
+              <FormField label="Note" value={notes} onChange={setNotes} placeholder="Autogrill A1" />
+              <ActionButton label="Salva rifornimento" onPress={handleAdd} loading={saving} />
+            </Panel>
+          )}
+
+          {refuels.length > 0 ? (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.periodScroll}>
+              <View style={styles.periodRow}>
+                {PERIODS.map((item) => (
+                  <TouchableOpacity
+                    key={item.value}
+                    style={[styles.chip, period === item.value && styles.chipActive]}
+                    onPress={() => setPeriod(item.value)}
+                  >
+                    <Text style={[styles.chipText, period === item.value && styles.chipTextActive]}>{item.label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </ScrollView>
+          ) : null}
+
+          {filtered.length === 0 && !showForm ? (
+            <Panel title="Nessun rifornimento" subtitle="Tocca il pulsante principale per registrare il primo pieno.">
+              <Text style={styles.centerIcon}>⛽</Text>
+            </Panel>
+          ) : (
+            filtered.map((item) => {
+              const tone = item.km_per_liter == null ? 'default' : avg && item.km_per_liter >= avg ? 'info' : 'warning'
+              return (
+                <Panel
+                  key={item.id}
+                  tone={tone}
+                  title={formatDate(item.date)}
+                  subtitle={`${item.odometer_km} km · ${item.liters.toFixed(2)} L · ${formatEuro(item.amount_eur)}`}
+                >
+                  <View style={styles.refuelFooter}>
+                    <StatusPill
+                      label={item.km_per_liter != null ? `${item.km_per_liter.toFixed(1)} km/l` : 'Parziale'}
+                      tone={item.km_per_liter != null ? (avg && item.km_per_liter >= avg ? 'success' : 'warning') : 'default'}
+                    />
+                    <TouchableOpacity onPress={() => confirmDelete(item.id, deleteRefuel)}>
+                      <Text style={styles.deleteText}>Elimina</Text>
+                    </TouchableOpacity>
+                  </View>
+                </Panel>
+              )
+            })
+          )}
+        </>
       )}
-    </ScrollView>
+    </AppScreen>
   )
 }
 
-const Label = ({ text }: { text: string }) => <Text style={{ fontSize: font.sm, color: colors.textSecondary, marginBottom: 4 }}>{text}</Text>
+function confirmDelete(id: string, deleteRefuel: (id: string) => Promise<void>) {
+  Alert.alert('Elimina rifornimento', 'Sei sicuro?', [
+    { text: 'Annulla', style: 'cancel' },
+    { text: 'Elimina', style: 'destructive', onPress: () => deleteRefuel(id) },
+  ])
+}
 
-const s = StyleSheet.create({
-  root:        { flex: 1, backgroundColor: colors.bgDark },
-  content:     { padding: spacing.md, paddingTop: 56, paddingBottom: spacing.xl },
-  header:      { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.lg },
-  title:       { fontSize: font.xxl, fontWeight: 'bold', color: colors.textPrimary },
-  noVehicle:   { color: colors.textSecondary, textAlign: 'center', paddingVertical: spacing.xl },
-  form:        { backgroundColor: colors.surfaceDk, borderRadius: radius.lg, padding: spacing.md, marginBottom: spacing.lg },
-  formTitle:   { fontSize: font.lg, fontWeight: '600', color: colors.textPrimary, marginBottom: spacing.md },
-  input:       { backgroundColor: colors.cardDk, color: colors.textPrimary, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: 12, fontSize: font.base },
-  receiptCard: { backgroundColor: colors.cardDk, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.md },
-  receiptTitle:{ color: colors.textPrimary, fontSize: font.base, fontWeight: '600', marginBottom: 4 },
-  receiptText: { color: colors.textSecondary, fontSize: font.sm, lineHeight: 18, marginBottom: spacing.sm },
-  receiptActions: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm },
-  secondaryBtn: { flex: 1, backgroundColor: colors.surfaceDk, borderRadius: radius.md, paddingVertical: 12, alignItems: 'center', borderWidth: 1, borderColor: colors.border },
-  secondaryBtnText: { color: colors.primary, fontSize: font.sm, fontWeight: '600' },
-  receiptPreview: { width: '100%', height: 160, borderRadius: radius.md, marginBottom: spacing.sm, backgroundColor: colors.surfaceDk },
-  receiptInput: { minHeight: 110, paddingTop: 12 },
-  row:         { flexDirection: 'row', alignItems: 'center' },
-  switchRow:   { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  pplBox:      { backgroundColor: 'rgba(232,97,26,0.1)', borderRadius: radius.sm, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, marginTop: spacing.sm },
-  pplText:     { color: colors.primary, fontSize: font.sm },
-  btn:         { backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: 14, alignItems: 'center' },
-  btnText:     { color: '#fff', fontWeight: '600', fontSize: font.base },
-  chip:        { paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderRadius: radius.full, borderWidth: 1, borderColor: colors.border },
-  chipActive:  { backgroundColor: colors.primary, borderColor: colors.primary },
-  center:      { alignItems: 'center', paddingVertical: spacing.xl },
-  emptyTitle:  { fontSize: font.lg, fontWeight: '600', color: colors.textPrimary, marginBottom: spacing.sm },
-  refuelCard:  { backgroundColor: colors.surfaceDk, borderRadius: radius.lg, padding: spacing.md, marginBottom: spacing.sm, flexDirection: 'row', alignItems: 'center' },
-  kmlBar:      { width: 4, height: 48, borderRadius: 2, marginRight: spacing.sm },
-  refuelDate:  { fontSize: font.sm, color: colors.textSecondary, flex: 1 },
-  refuelAmount:{ fontSize: font.base, fontWeight: '600', color: colors.textPrimary },
-  refuelInfo:  { fontSize: font.sm, color: colors.textSecondary, marginTop: 2 },
+function filterByPeriod(refuels: Refuel[], period: Period): Refuel[] {
+  if (period === 'all') {
+    return refuels
+  }
+  const days = period === '1m' ? 31 : period === '3m' ? 92 : 365
+  const cutoff = new Date(Date.now() - days * 86400000).toISOString().split('T')[0]
+  return refuels.filter((item) => item.date >= cutoff)
+}
+
+function FormField({
+  label,
+  value,
+  onChange,
+  placeholder,
+  numeric,
+  decimal,
+}: {
+  label: string
+  value: string
+  onChange: (value: string) => void
+  placeholder?: string
+  numeric?: boolean
+  decimal?: boolean
+}) {
+  return (
+    <View style={styles.field}>
+      <Text style={styles.label}>{label}</Text>
+      <TextInput
+        style={styles.input}
+        value={value}
+        onChangeText={onChange}
+        placeholder={placeholder}
+        placeholderTextColor={colors.textMuted}
+        keyboardType={decimal ? 'decimal-pad' : numeric ? 'numeric' : 'default'}
+      />
+    </View>
+  )
+}
+
+const styles = StyleSheet.create({
+  centerIcon: {
+    fontSize: 52,
+    textAlign: 'center',
+  },
+  actionsCol: {
+    gap: spacing.sm,
+    marginBottom: spacing.sm,
+  },
+  topCtaWrap: {
+    marginBottom: spacing.md,
+  },
+  summaryGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+  },
+  summaryCell: {
+    flex: 1,
+    minWidth: '47%',
+    borderRadius: radius.lg,
+    backgroundColor: colors.surfaceDk,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.md,
+  },
+  summaryValue: {
+    color: colors.textPrimary,
+    fontSize: font.xl,
+    fontWeight: '800',
+  },
+  summaryLabel: {
+    color: colors.textMuted,
+    fontSize: font.sm,
+    marginTop: 4,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+  },
+  receiptPreview: {
+    width: '100%',
+    height: 170,
+    borderRadius: radius.lg,
+    marginBottom: spacing.sm,
+    backgroundColor: colors.cardDk,
+  },
+  receiptInput: {
+    minHeight: 120,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.cardDk,
+    color: colors.textPrimary,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 14,
+    fontSize: font.base,
+  },
+  field: {
+    marginBottom: spacing.md,
+  },
+  label: {
+    color: colors.textSecondary,
+    fontSize: font.sm,
+    marginBottom: 6,
+  },
+  input: {
+    backgroundColor: colors.cardDk,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    color: colors.textPrimary,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 14,
+    fontSize: font.base,
+  },
+  splitRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  splitCol: {
+    flex: 1,
+  },
+  priceBox: {
+    backgroundColor: colors.surfaceDk,
+    borderWidth: 1,
+    borderColor: colors.borderStrong,
+    borderRadius: radius.lg,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+  },
+  priceText: {
+    color: colors.textPrimary,
+    fontSize: font.sm,
+    fontWeight: '700',
+  },
+  toggleRow: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.panelRaised,
+    borderRadius: radius.xl,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  toggleRowActive: {
+    borderColor: colors.successEdge,
+  },
+  toggleTitle: {
+    color: colors.textPrimary,
+    fontSize: font.base,
+    fontWeight: '700',
+  },
+  toggleSub: {
+    color: colors.textSecondary,
+    fontSize: font.sm,
+    marginTop: 4,
+  },
+  periodScroll: {
+    marginBottom: spacing.md,
+  },
+  periodRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  chip: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: 10,
+    borderRadius: radius.full,
+    borderWidth: 1,
+    borderColor: colors.borderStrong,
+    backgroundColor: colors.panelRaised,
+  },
+  chipActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primaryEdge,
+  },
+  chipText: {
+    color: colors.textSecondary,
+    fontSize: font.sm,
+    fontWeight: '700',
+  },
+  chipTextActive: {
+    color: '#fff',
+  },
+  refuelFooter: {
+    marginTop: spacing.sm,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  deleteText: {
+    color: colors.error,
+    fontSize: font.sm,
+    fontWeight: '700',
+  },
 })
