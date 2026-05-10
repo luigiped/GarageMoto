@@ -1,6 +1,9 @@
 import { create } from 'zustand'
 import { getDb } from '../db/client'
+import { cancelNotification } from '../services/notifications'
+import { removeVehicleImageUri } from '../services/vehicleImageStore'
 import { supabase } from '../services/supabase'
+import { enqueueDelete, flushSyncQueue } from '../services/syncQueue'
 import type { Vehicle, NewVehicle } from '../types/vehicle'
 import { createId } from '../utils/id'
 
@@ -125,10 +128,35 @@ export const useVehicleStore = create<VehicleStore>((set, get) => ({
   deleteVehicle: async (id) => {
     try {
       const db = getDb()
+      const [refuels, maintenance, trips] = await Promise.all([
+        db.getAllAsync<{ id: string }>('SELECT id FROM refuels WHERE vehicle_id=?', [id]),
+        db.getAllAsync<{ id: string }>('SELECT id FROM maintenance WHERE vehicle_id=?', [id]),
+        db.getAllAsync<{ id: string }>('SELECT id FROM trips WHERE vehicle_id=?', [id]),
+      ])
+
+      for (const row of refuels) {
+        await enqueueDelete('refuels', row.id)
+      }
+      for (const row of maintenance) {
+        await enqueueDelete('maintenance', row.id)
+      }
+      for (const row of trips) {
+        await enqueueDelete('trips', row.id)
+      }
+      await enqueueDelete('vehicles', id)
+
       await db.runAsync('DELETE FROM vehicles WHERE id=?', [id])
       await db.runAsync('DELETE FROM refuels WHERE vehicle_id=?', [id])
       await db.runAsync('DELETE FROM maintenance WHERE vehicle_id=?', [id])
       await db.runAsync('DELETE FROM trips WHERE vehicle_id=?', [id])
+
+      await Promise.all(
+        maintenance.map((row) => cancelNotification(row.id).catch(() => null)),
+      )
+      await removeVehicleImageUri(id).catch((error) => {
+        console.warn('[vehicleStore] removeVehicleImageUri:', error)
+      })
+
       const vehicles = get().vehicles.filter(v => v.id !== id)
       set({
         vehicles,
@@ -136,11 +164,8 @@ export const useVehicleStore = create<VehicleStore>((set, get) => ({
           ? (vehicles[0] ?? null)
           : get().activeVehicle,
       })
-      if (supabase) {
-        supabase.from('vehicles').delete().eq('id', id).then(({ error }) => {
-          if (error) console.error('[vehicleStore] deleteVehicle sync:', error)
-        })
-      }
+
+      void deleteVehicleRemote(id)
     } catch (e) {
       console.error('[vehicleStore] deleteVehicle:', e)
       set({ error: 'Errore eliminazione veicolo' })
@@ -150,12 +175,35 @@ export const useVehicleStore = create<VehicleStore>((set, get) => ({
 
 // ── Helpers sync ──────────────────────────────────────────────────────────────
 
-type VehicleRow = Omit<Vehicle, 'is_active'> & { is_active: number }
+type VehicleRow = Omit<Vehicle, 'is_active'> & { is_active: number; sync_pending?: number }
 
 function deserializeVehicle(row: VehicleRow): Vehicle {
+  const { sync_pending: _syncPending, ...vehicleRow } = row
   return {
-    ...row,
-    is_active: Boolean(row.is_active),
+    ...vehicleRow,
+    is_active: Boolean(vehicleRow.is_active),
+  }
+}
+
+async function deleteVehicleRemote(vehicleId: string): Promise<void> {
+  if (!supabase) {
+    return
+  }
+  const client = supabase
+
+  const steps = [
+    () => client.from('refuels').delete().eq('vehicle_id', vehicleId),
+    () => client.from('maintenance').delete().eq('vehicle_id', vehicleId),
+    () => client.from('trips').delete().eq('vehicle_id', vehicleId),
+    () => client.from('vehicles').delete().eq('id', vehicleId),
+  ]
+
+  for (const step of steps) {
+    const { error } = await step()
+    if (error) {
+      console.error('[vehicleStore] deleteVehicle sync:', error)
+      return
+    }
   }
 }
 
@@ -163,10 +211,20 @@ async function _pushVehicle(vehicle: Vehicle) {
   if (!supabase) return
 
   const { error } = await supabase.from('vehicles').upsert({
-    ...vehicle,
+    id: vehicle.id,
+    user_id: vehicle.user_id,
+    brand: vehicle.brand,
+    model: vehicle.model,
+    year: vehicle.year,
     displacement_cc: vehicle.displacement_cc ?? null,
+    tank_capacity_l: vehicle.tank_capacity_l,
+    odometer_start_km: vehicle.odometer_start_km,
+    fuel_type: vehicle.fuel_type,
     nickname: vehicle.nickname ?? null,
+    is_active: vehicle.is_active,
     color_hex: vehicle.color_hex ?? null,
+    created_at: vehicle.created_at,
+    updated_at: vehicle.updated_at,
   })
   if (error) {
     console.error('[vehicleStore] sync push:', error)
@@ -178,6 +236,9 @@ async function _pushVehicle(vehicle: Vehicle) {
 
 async function _syncVehicles(userId: string) {
   if (!supabase) return
+
+  await flushSyncQueue()
+  await _pushPendingVehicles(userId)
 
   const { data, error } = await supabase
     .from('vehicles')
@@ -201,5 +262,17 @@ async function _syncVehicles(userId: string) {
         v.is_active ? 1 : 0, v.created_at, v.updated_at,
       ],
     ).catch(console.error)
+  }
+}
+
+async function _pushPendingVehicles(userId: string) {
+  const db = getDb()
+  const rows = await db.getAllAsync<VehicleRow>(
+    'SELECT * FROM vehicles WHERE user_id=? AND sync_pending=1 ORDER BY updated_at ASC',
+    [userId],
+  )
+
+  for (const row of rows) {
+    await _pushVehicle(deserializeVehicle(row))
   }
 }

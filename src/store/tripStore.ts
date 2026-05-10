@@ -2,6 +2,7 @@
 import { create } from 'zustand'
 import { getDb } from '../db/client'
 import { supabase } from '../services/supabase'
+import { enqueueDelete, flushSyncQueue } from '../services/syncQueue'
 import type { Trip, NewTrip } from '../types/trip'
 import { createId } from '../utils/id'
 
@@ -23,11 +24,11 @@ export const useTripStore = create<TripStore>((set, get) => ({
     set({ isLoading: true, error: null })
     try {
       const db = getDb()
-      const rows = await db.getAllAsync<Trip>(
+      const rows = await db.getAllAsync<TripRow>(
         'SELECT * FROM trips WHERE vehicle_id=? ORDER BY start_time DESC',
         [vehicleId],
       )
-      set({ trips: rows, isLoading: false })
+      set({ trips: rows.map(deserializeTrip), isLoading: false })
       _syncTrips(vehicleId)
     } catch (e) {
       console.error('[tripStore] load:', e)
@@ -66,6 +67,7 @@ export const useTripStore = create<TripStore>((set, get) => ({
   deleteTrip: async (id) => {
     try {
       const db = getDb()
+      await enqueueDelete('trips', id)
       await db.runAsync('DELETE FROM trips WHERE id=?', [id])
       set({ trips: get().trips.filter(t => t.id !== id) })
       if (supabase) {
@@ -84,8 +86,23 @@ async function _pushTrip(trip: Trip) {
   if (!supabase) return
 
   const { error } = await supabase.from('trips').upsert({
-    ...trip,
+    id: trip.id,
+    user_id: trip.user_id,
+    vehicle_id: trip.vehicle_id,
+    start_time: trip.start_time,
+    end_time: trip.end_time,
+    distance_km: trip.distance_km,
+    duration_minutes: trip.duration_minutes,
+    avg_speed_kmh: trip.avg_speed_kmh,
+    max_speed_kmh: trip.max_speed_kmh,
+    max_lean_angle_deg: trip.max_lean_angle_deg ?? null,
+    max_lean_left_deg: trip.max_lean_left_deg ?? null,
+    max_lean_right_deg: trip.max_lean_right_deg ?? null,
+    max_braking_g: trip.max_braking_g ?? null,
     route_json: JSON.parse(trip.route_json), // Supabase vuole JSONB
+    notes: trip.notes ?? null,
+    created_at: trip.created_at,
+    updated_at: trip.updated_at,
   })
   if (error) {
     console.error('[tripStore] sync push:', error)
@@ -97,6 +114,9 @@ async function _pushTrip(trip: Trip) {
 
 async function _syncTrips(vehicleId: string) {
   if (!supabase) return
+
+  await flushSyncQueue()
+  await _pushPendingTrips(vehicleId)
 
   const { data, error } = await supabase
     .from('trips')
@@ -123,4 +143,23 @@ async function _syncTrips(vehicleId: string) {
       ],
     ).catch(console.error)
   }
+}
+
+async function _pushPendingTrips(vehicleId: string) {
+  const db = getDb()
+  const rows = await db.getAllAsync<TripRow>(
+    'SELECT * FROM trips WHERE vehicle_id=? AND sync_pending=1 ORDER BY updated_at ASC',
+    [vehicleId],
+  )
+
+  for (const row of rows) {
+    await _pushTrip(deserializeTrip(row))
+  }
+}
+
+type TripRow = Trip & { sync_pending?: number }
+
+function deserializeTrip(row: TripRow): Trip {
+  const { sync_pending: _syncPending, ...trip } = row
+  return trip
 }

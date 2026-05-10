@@ -14,7 +14,7 @@ import { useRefuelStore } from '../../src/store/refuelStore'
 import { useTripStore } from '../../src/store/tripStore'
 import { useVehicleStore } from '../../src/store/vehicleStore'
 import { getVehicleImageUri } from '../../src/services/vehicleImageStore'
-import { colors, designPreset, font, radius, spacing } from '../../src/theme'
+import { useTheme } from '../../src/useTheme'
 import { MAINTENANCE_LABELS, type Maintenance } from '../../src/types/maintenance'
 import type { Refuel } from '../../src/types/refuel'
 import type { Trip } from '../../src/types/trip'
@@ -27,6 +27,10 @@ const PERFORMANCE_ROUTE = '/performance' as Href
 type GlassViewMode = 'overview' | 'costs' | 'rides'
 
 export default function DashboardScreen() {
+  const theme = useTheme()
+  const styles = createStyles(theme)
+  const glassStyles = createGlassStyles(theme)
+  const { colors, designPreset } = theme
   const { user } = useAuthStore()
   const { activeVehicle, loadVehicles } = useVehicleStore()
   const { refuels, loadRefuels } = useRefuelStore()
@@ -107,6 +111,7 @@ export default function DashboardScreen() {
   if (designPreset === 'glass') {
     return (
       <GlassDashboard
+        theme={theme}
         activeVehicle={activeVehicle}
         avg={avg}
         currentKm={currentKm}
@@ -206,6 +211,7 @@ export default function DashboardScreen() {
 }
 
 function GlassDashboard({
+  theme,
   activeVehicle,
   avg,
   currentKm,
@@ -224,6 +230,7 @@ function GlassDashboard({
   warning,
   onChangeMode,
 }: {
+  theme: ReturnType<typeof useTheme>
   activeVehicle: Vehicle
   avg: number | null
   currentKm: number
@@ -242,9 +249,10 @@ function GlassDashboard({
   warning: Maintenance[]
   onChangeMode: (mode: GlassViewMode) => void
 }) {
+  const glassStyles = createGlassStyles(theme)
   const recentTrips = trips.slice(0, 3)
   const monthlyBars = useMemo(() => buildMonthlySpendBars(refuels), [refuels])
-  const leanLeaderboard = useMemo(() => buildLeanLeaderboard(trips), [trips])
+  const leanLeaderboard = useMemo(() => buildLeanLeaderboard(trips, theme.colors), [theme.colors, trips])
   const fuelPct = avg && range ? Math.max(0, Math.min(100, Math.round((range / (activeVehicle.tank_capacity_l * avg)) * 100))) : null
   const serviceLabel = isOverdue ? 'Service urgente' : warning.length > 0 ? 'Service vicino' : 'Moto in ordine'
   const topMaintenance = [...overdue, ...warning, ...maintenance.filter((item) => getStatus(item, currentKm) === 'ok')][0]
@@ -289,11 +297,11 @@ function GlassDashboard({
           </View>
           <View style={glassStyles.heroMotoWrap}>
             {vehicleImageUri ? (
-              <Image source={{ uri: vehicleImageUri }} style={glassStyles.heroImage} resizeMode="cover" />
+              <Image source={{ uri: vehicleImageUri }} style={glassStyles.heroImage} resizeMode="contain" />
             ) : (
               <>
                 <Text style={glassStyles.heroMotoEmoji}>🏍️</Text>
-                <Text style={glassStyles.heroMotoText}>Carica una foto</Text>
+                <Text style={glassStyles.heroMotoText}>Usa immagine scontornata</Text>
               </>
             )}
           </View>
@@ -443,6 +451,7 @@ function GlassMetricCard({
   unit: string
   value: string
 }) {
+  const glassStyles = createGlassStyles(useTheme())
   return (
     <View style={[glassStyles.metricCard, accent && glassStyles.metricCardAccent]}>
       <Text style={glassStyles.metricIcon}>{icon}</Text>
@@ -464,6 +473,7 @@ function GlassToggle({
   label: string
   onPress: () => void
 }) {
+  const glassStyles = createGlassStyles(useTheme())
   return (
     <TouchableOpacity style={[glassStyles.toggleChip, active && glassStyles.toggleChipActive]} onPress={onPress}>
       <Text style={[glassStyles.toggleChipText, active && glassStyles.toggleChipTextActive]}>{label}</Text>
@@ -482,6 +492,7 @@ function GlassInfoCard({
   stats: Array<{ value: string; label: string }>
   title: string
 }) {
+  const glassStyles = createGlassStyles(useTheme())
   return (
     <View style={glassStyles.infoCard}>
       <View style={glassStyles.infoCardHeader}>
@@ -527,7 +538,7 @@ function buildMonthlySpendBars(refuels: Refuel[]) {
   }))
 }
 
-function buildLeanLeaderboard(trips: Trip[]) {
+function buildLeanLeaderboard(trips: Trip[], colors: ReturnType<typeof useTheme>['colors']) {
   return trips
     .filter((trip) => trip.max_lean_angle_deg != null)
     .slice(0, 4)
@@ -539,6 +550,7 @@ function buildLeanLeaderboard(trips: Trip[]) {
 }
 
 function Stat({ value, label }: { value: string; label: string }) {
+  const styles = createStyles(useTheme())
   return (
     <View style={styles.statCell}>
       <Text style={styles.statValue}>{value}</Text>
@@ -547,7 +559,10 @@ function Stat({ value, label }: { value: string; label: string }) {
   )
 }
 
-const styles = StyleSheet.create({
+function createStyles(theme: ReturnType<typeof useTheme>) {
+  const { colors, font, radius, spacing } = theme
+
+  return StyleSheet.create({
   emptyWrap: {
     padding: spacing.lg,
     borderWidth: 1,
@@ -639,9 +654,13 @@ const styles = StyleSheet.create({
   actionStack: {
     gap: spacing.sm,
   },
-})
+  })
+}
 
-const glassStyles = StyleSheet.create({
+function createGlassStyles(theme: ReturnType<typeof useTheme>) {
+  const { colors, font, radius, spacing } = theme
+
+  return StyleSheet.create({
   headerBlock: {
     marginBottom: spacing.md,
   },
@@ -700,7 +719,10 @@ const glassStyles = StyleSheet.create({
   },
   heroGrid: {
     position: 'absolute',
-    inset: 0,
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
     opacity: 0.5,
     backgroundColor: 'transparent',
     borderColor: colors.border,
@@ -760,8 +782,8 @@ const glassStyles = StyleSheet.create({
     fontSize: font.sm,
   },
   heroMotoWrap: {
-    width: 170,
-    height: 170,
+    width: 192,
+    height: 192,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -980,4 +1002,5 @@ const glassStyles = StyleSheet.create({
   actionStack: {
     gap: spacing.sm,
   },
-})
+  })
+}

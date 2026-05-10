@@ -2,6 +2,7 @@ import * as SQLite from 'expo-sqlite'
 import {
   CREATE_MAINTENANCE,
   CREATE_REFUELS,
+  CREATE_SYNC_QUEUE,
   CREATE_TRIPS,
   CREATE_VEHICLES,
 } from './schema'
@@ -14,7 +15,7 @@ export interface AppDatabase {
   getAllAsync: <T>(sql: string, params?: SqlValue[]) => Promise<T[]>
 }
 
-type TableName = 'vehicles' | 'refuels' | 'maintenance' | 'trips'
+type TableName = 'vehicles' | 'refuels' | 'maintenance' | 'trips' | 'sync_queue'
 type DbMode = 'sqlite' | 'memory'
 type MemoryTables = Record<TableName, Record<string, SqlValue>[]>
 
@@ -53,6 +54,7 @@ export async function initDb(): Promise<void> {
     await adapter.execAsync(CREATE_REFUELS)
     await adapter.execAsync(CREATE_MAINTENANCE)
     await adapter.execAsync(CREATE_TRIPS)
+    await adapter.execAsync(CREATE_SYNC_QUEUE)
     await ensureTripsPerformanceColumns(adapter)
 
     _db = adapter
@@ -65,6 +67,7 @@ export async function initDb(): Promise<void> {
     await memory.execAsync(CREATE_REFUELS)
     await memory.execAsync(CREATE_MAINTENANCE)
     await memory.execAsync(CREATE_TRIPS)
+    await memory.execAsync(CREATE_SYNC_QUEUE)
 
     _db = memory
     _dbMode = 'memory'
@@ -108,6 +111,7 @@ function createMemoryAdapter(): AppDatabase {
     refuels: [],
     maintenance: [],
     trips: [],
+    sync_queue: [],
   }
 
   return {
@@ -145,7 +149,7 @@ function normalizeSql(sql: string): string {
 
 function getTableName(sql: string): TableName {
   const match =
-    sql.match(/(?:insert(?: or replace)? into|update|delete from|from)\s+(vehicles|refuels|maintenance|trips)/i)
+    sql.match(/(?:insert(?: or replace)? into|update|delete from|from)\s+(vehicles|refuels|maintenance|trips|sync_queue)/i)
 
   if (!match) {
     throw new Error(`SQL non supportato dal fallback in memoria: ${sql}`)
@@ -218,6 +222,7 @@ function selectRows<T>(tables: MemoryTables, sql: string, params: SqlValue[]): T
   const table = getTableName(sql)
   const whereMatch = sql.match(/where\s+(\w+)\s*=\s*\?/i)
   const orderMatch = sql.match(/order by\s+(\w+)\s+(asc|desc)/i)
+  const countQuery = sql.includes('count(*) as count')
 
   let rows = [...tables[table]]
 
@@ -235,6 +240,10 @@ function selectRows<T>(tables: MemoryTables, sql: string, params: SqlValue[]): T
     const direction = orderMatch[2]
 
     rows.sort((a, b) => compareValues(a[orderField], b[orderField], direction))
+  }
+
+  if (countQuery) {
+    return [{ count: rows.length } as T]
   }
 
   return rows as T[]

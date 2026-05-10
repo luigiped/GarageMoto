@@ -2,7 +2,14 @@ import type { Refuel } from '../types/refuel'
 import type { Trip } from '../types/trip'
 
 export const PERFORMANCE_DISCLAIMER =
-  'Funzione sperimentale: i suggerimenti performance sono indicativi, non sostituiscono manutenzione, diagnostica o guida prudente.'
+  `DATI INDICATIVI — NON PROFESSIONALI
+
+I valori mostrati sono stime calcolate tramite i sensori dello smartphone
+(accelerometro, giroscopio) e possono differire significativamente dai
+valori reali del veicolo. Non utilizzare questi dati per valutazioni
+tecniche, legali o confronti con dati ufficiali del costruttore.
+
+GarageMoto declina ogni responsabilità per l'uso di questi dati.`
 
 export interface PerformanceSummary {
   bestKmL: number | null

@@ -1,15 +1,17 @@
-import { useEffect, useState } from 'react'
+// R1.3 - rafforza il flusso OCR assistito con foto da camera, banner persistente e highlight dei campi compilati.
+import { useEffect, useRef, useState } from 'react'
 import { Alert, Image, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
 import * as ImagePicker from 'expo-image-picker'
 import { ActionButton } from '../../src/components/ui/ActionButton'
 import { AppScreen } from '../../src/components/ui/AppScreen'
+import { DateField } from '../../src/components/ui/DateField'
 import { Panel } from '../../src/components/ui/Panel'
 import { ScreenHeader } from '../../src/components/ui/ScreenHeader'
 import { StatusPill } from '../../src/components/ui/StatusPill'
 import { useAuthStore } from '../../src/store/authStore'
 import { useRefuelStore } from '../../src/store/refuelStore'
 import { useVehicleStore } from '../../src/store/vehicleStore'
-import { colors, designPreset, font, radius, spacing } from '../../src/theme'
+import { useTheme } from '../../src/useTheme'
 import type { Refuel } from '../../src/types/refuel'
 import { averageConsumption } from '../../src/utils/fuelCalculator'
 import { formatDate, formatEuro, todayISO } from '../../src/utils/formatters'
@@ -25,6 +27,9 @@ const PERIODS: { value: Period; label: string }[] = [
 ]
 
 export default function RefuelsScreen() {
+  const theme = useTheme()
+  const styles = createStyles(theme)
+  const { colors, designPreset } = theme
   const { user } = useAuthStore()
   const { activeVehicle } = useVehicleStore()
   const { refuels, loadRefuels, addRefuel, deleteRefuel } = useRefuelStore()
@@ -40,6 +45,13 @@ export default function RefuelsScreen() {
   const [receiptText, setReceiptText] = useState('')
   const [receiptImageUri, setReceiptImageUri] = useState<string | null>(null)
   const [parsingReceipt, setParsingReceipt] = useState(false)
+  const [ocrBannerVisible, setOcrBannerVisible] = useState(false)
+  const [highlightedFields, setHighlightedFields] = useState<Record<'date' | 'liters' | 'amount', boolean>>({
+    date: false,
+    liters: false,
+    amount: false,
+  })
+  const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const ppl = liters && amount && parseFloat(liters) > 0
     ? (parseFloat(amount.replace(',', '.')) / parseFloat(liters.replace(',', '.'))).toFixed(3)
@@ -50,6 +62,14 @@ export default function RefuelsScreen() {
       loadRefuels(activeVehicle.id)
     }
   }, [activeVehicle?.id, loadRefuels])
+
+  useEffect(() => {
+    return () => {
+      if (highlightTimerRef.current) {
+        clearTimeout(highlightTimerRef.current)
+      }
+    }
+  }, [])
 
   async function handleAdd() {
     if (!odometer || !liters || !amount) {
@@ -80,6 +100,8 @@ export default function RefuelsScreen() {
     setFullTank(true)
     setReceiptText('')
     setReceiptImageUri(null)
+    setOcrBannerVisible(false)
+    resetHighlights()
     Alert.alert('Salvato', kml ? `Rifornimento registrato. km/l: ${kml}` : 'Rifornimento registrato.')
   }
 
@@ -97,10 +119,33 @@ export default function RefuelsScreen() {
       })
       if (!result.canceled) {
         setReceiptImageUri(result.assets[0]?.uri ?? null)
+        setOcrBannerVisible(true)
       }
     } catch (error) {
       console.error('[refuels] pick receipt:', error)
       Alert.alert('Errore', 'Impossibile aprire la galleria.')
+    }
+  }
+
+  async function handleCaptureReceiptImage() {
+    try {
+      const permission = await ImagePicker.requestCameraPermissionsAsync()
+      if (!permission.granted) {
+        Alert.alert('Permesso richiesto', 'Serve accesso alla fotocamera per fotografare lo scontrino.')
+        return
+      }
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ['images'],
+        allowsEditing: false,
+        quality: 0.8,
+      })
+      if (!result.canceled) {
+        setReceiptImageUri(result.assets[0]?.uri ?? null)
+        setOcrBannerVisible(true)
+      }
+    } catch (error) {
+      console.error('[refuels] capture receipt:', error)
+      Alert.alert('Errore', 'Impossibile aprire la fotocamera.')
     }
   }
 
@@ -111,25 +156,59 @@ export default function RefuelsScreen() {
     }
     setParsingReceipt(true)
     const parsed = parseReceiptText(receiptText)
+    const fieldsToHighlight: Array<'date' | 'liters' | 'amount'> = []
     if (parsed.date) {
       setDate(parsed.date)
+      fieldsToHighlight.push('date')
     }
     if (parsed.liters != null) {
       setLiters(parsed.liters.toFixed(2))
+      fieldsToHighlight.push('liters')
     }
     if (parsed.amountEur != null) {
       setAmount(parsed.amountEur.toFixed(2))
+      fieldsToHighlight.push('amount')
     }
     if (!notes.trim() && receiptImageUri) {
       setNotes('Scontrino allegato manualmente')
     }
+    setOcrBannerVisible(true)
+    applyHighlights(fieldsToHighlight)
     setParsingReceipt(false)
 
     if (parsed.warnings.length > 0) {
       Alert.alert('Controlla i dati', parsed.warnings.join('\n'))
     } else {
-      Alert.alert('Campi compilati', 'Verifica i valori riconosciuti e completa l’odometro.')
+      const message = parsed.isReliable
+        ? 'Verifica i valori riconosciuti e completa l’odometro.'
+        : 'Riconoscimento parziale: verifica con attenzione i valori compilati e completa l’odometro.'
+      Alert.alert('Campi compilati', message)
     }
+  }
+
+  function applyHighlights(fields: Array<'date' | 'liters' | 'amount'>) {
+    if (highlightTimerRef.current) {
+      clearTimeout(highlightTimerRef.current)
+    }
+
+    if (fields.length === 0) {
+      resetHighlights()
+      return
+    }
+
+    setHighlightedFields({
+      date: fields.includes('date'),
+      liters: fields.includes('liters'),
+      amount: fields.includes('amount'),
+    })
+
+    highlightTimerRef.current = setTimeout(() => {
+      resetHighlights()
+    }, 1200)
+  }
+
+  function resetHighlights() {
+    setHighlightedFields({ date: false, liters: false, amount: false })
   }
 
   const avg = averageConsumption(refuels)
@@ -190,10 +269,21 @@ export default function RefuelsScreen() {
             <Panel tone="hero" title="Nuovo rifornimento" subtitle="Il km/l viene calcolato solo sui pieni completi.">
               <Panel
                 title="OCR scontrino"
-                subtitle="Seleziona uno scontrino e incolla il testo estratto, ad esempio da Google Lens."
+                subtitle="Scatta o seleziona uno scontrino, poi incolla il testo estratto per precompilare i campi."
                 tone="default"
               >
+                {ocrBannerVisible ? (
+                  <View style={styles.ocrBanner}>
+                    <Text style={styles.ocrBannerTitle}>Dati da OCR assistito</Text>
+                    <Text style={styles.ocrBannerText}>Verifica sempre i valori prima di salvare il rifornimento.</Text>
+                  </View>
+                ) : null}
                 <View style={styles.actionsCol}>
+                  <ActionButton
+                    label="Scatta foto scontrino"
+                    variant="secondary"
+                    onPress={() => { void handleCaptureReceiptImage() }}
+                  />
                   <ActionButton
                     label={receiptImageUri ? 'Cambia immagine scontrino' : 'Seleziona scontrino'}
                     variant="secondary"
@@ -203,8 +293,8 @@ export default function RefuelsScreen() {
                     label={parsingReceipt ? 'Analisi in corso' : 'Applica testo OCR'}
                     variant="secondary"
                     onPress={handleApplyReceiptText}
-                    loading={parsingReceipt}
-                  />
+                  loading={parsingReceipt}
+                />
                 </View>
                 {receiptImageUri ? <Image source={{ uri: receiptImageUri }} style={styles.receiptPreview} /> : null}
                 <TextInput
@@ -218,14 +308,30 @@ export default function RefuelsScreen() {
                 />
               </Panel>
 
-              <FormField label="Data" value={date} onChange={setDate} placeholder="YYYY-MM-DD" />
+              <View style={highlightedFields.date ? styles.fieldHighlight : undefined}>
+                <DateField label="Data" value={date} onChange={setDate} />
+              </View>
               <FormField label="Odometro (km) *" value={odometer} onChange={setOdometer} placeholder="12450" numeric />
               <View style={styles.splitRow}>
                 <View style={styles.splitCol}>
-                  <FormField label="Litri *" value={liters} onChange={setLiters} placeholder="14.5" decimal />
+                  <FormField
+                    label="Litri *"
+                    value={liters}
+                    onChange={setLiters}
+                    placeholder="14.5"
+                    decimal
+                    highlighted={highlightedFields.liters}
+                  />
                 </View>
                 <View style={styles.splitCol}>
-                  <FormField label="Importo (€) *" value={amount} onChange={setAmount} placeholder="29.75" decimal />
+                  <FormField
+                    label="Importo (€) *"
+                    value={amount}
+                    onChange={setAmount}
+                    placeholder="29.75"
+                    decimal
+                    highlighted={highlightedFields.amount}
+                  />
                 </View>
               </View>
               {ppl ? (
@@ -320,6 +426,7 @@ function FormField({
   placeholder,
   numeric,
   decimal,
+  highlighted,
 }: {
   label: string
   value: string
@@ -327,23 +434,29 @@ function FormField({
   placeholder?: string
   numeric?: boolean
   decimal?: boolean
+  highlighted?: boolean
 }) {
+  const theme = useTheme()
+  const styles = createStyles(theme)
   return (
-    <View style={styles.field}>
+    <View style={[styles.field, highlighted && styles.fieldHighlight]}>
       <Text style={styles.label}>{label}</Text>
       <TextInput
-        style={styles.input}
+        style={[styles.input, highlighted && styles.inputHighlight]}
         value={value}
         onChangeText={onChange}
         placeholder={placeholder}
-        placeholderTextColor={colors.textMuted}
+        placeholderTextColor={theme.colors.textMuted}
         keyboardType={decimal ? 'decimal-pad' : numeric ? 'numeric' : 'default'}
       />
     </View>
   )
 }
 
-const styles = StyleSheet.create({
+function createStyles(theme: ReturnType<typeof useTheme>) {
+  const { colors, font, radius, spacing } = theme
+
+  return StyleSheet.create({
   centerIcon: {
     fontSize: 52,
     textAlign: 'center',
@@ -399,8 +512,36 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     fontSize: font.base,
   },
+  ocrBanner: {
+    borderWidth: 1,
+    borderColor: colors.warningEdge,
+    backgroundColor: colors.warningSurface,
+    borderRadius: radius.lg,
+    padding: spacing.md,
+    marginBottom: spacing.sm,
+  },
+  ocrBannerTitle: {
+    color: colors.warning,
+    fontSize: font.sm,
+    fontWeight: '800',
+    marginBottom: 4,
+    textTransform: 'uppercase',
+    letterSpacing: 0.7,
+  },
+  ocrBannerText: {
+    color: colors.textPrimary,
+    fontSize: font.sm,
+    lineHeight: 20,
+  },
   field: {
     marginBottom: spacing.md,
+  },
+  fieldHighlight: {
+    borderWidth: 1,
+    borderColor: colors.warningEdge,
+    backgroundColor: colors.warningSurface,
+    borderRadius: radius.lg,
+    paddingHorizontal: spacing.xs,
   },
   label: {
     color: colors.textSecondary,
@@ -416,6 +557,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingVertical: 14,
     fontSize: font.base,
+  },
+  inputHighlight: {
+    borderColor: colors.warningEdge,
   },
   splitRow: {
     flexDirection: 'row',
@@ -500,4 +644,5 @@ const styles = StyleSheet.create({
     fontSize: font.sm,
     fontWeight: '700',
   },
-})
+  })
+}

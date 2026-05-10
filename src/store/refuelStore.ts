@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { getDb } from '../db/client'
 import { supabase } from '../services/supabase'
+import { enqueueDelete, flushSyncQueue } from '../services/syncQueue'
 import {
   lastFillConsumption,
   costPerKm,
@@ -26,14 +27,11 @@ export const useRefuelStore = create<RefuelStore>((set, get) => ({
     set({ isLoading: true, error: null })
     try {
       const db = getDb()
-      const rows = await db.getAllAsync<Refuel>(
+      const rows = await db.getAllAsync<RefuelRow>(
         'SELECT * FROM refuels WHERE vehicle_id=? ORDER BY odometer_km DESC',
         [vehicleId],
       )
-      const refuels = rows.map(r => ({
-        ...r,
-        is_full_tank: Boolean((r as unknown as { is_full_tank: number }).is_full_tank),
-      }))
+      const refuels = rows.map(deserializeRefuel)
       set({ refuels, isLoading: false })
       _syncRefuels(vehicleId)
     } catch (e) {
@@ -108,6 +106,7 @@ export const useRefuelStore = create<RefuelStore>((set, get) => ({
   deleteRefuel: async (id) => {
     try {
       const db = getDb()
+      await enqueueDelete('refuels', id)
       await db.runAsync('DELETE FROM refuels WHERE id=?', [id])
       set({ refuels: get().refuels.filter(r => r.id !== id) })
       if (supabase) {
@@ -126,8 +125,20 @@ async function _pushRefuel(refuel: Refuel) {
   if (!supabase) return
 
   const { error } = await supabase.from('refuels').upsert({
-    ...refuel,
+    id: refuel.id,
+    user_id: refuel.user_id,
+    vehicle_id: refuel.vehicle_id,
+    date: refuel.date,
+    odometer_km: refuel.odometer_km,
+    liters: refuel.liters,
+    amount_eur: refuel.amount_eur,
     is_full_tank: refuel.is_full_tank,
+    notes: refuel.notes ?? null,
+    km_driven: refuel.km_driven ?? null,
+    km_per_liter: refuel.km_per_liter ?? null,
+    cost_per_km: refuel.cost_per_km ?? null,
+    created_at: refuel.created_at,
+    updated_at: refuel.updated_at,
   })
   if (error) {
     console.error('[refuelStore] sync push:', error)
@@ -139,6 +150,9 @@ async function _pushRefuel(refuel: Refuel) {
 
 async function _syncRefuels(vehicleId: string) {
   if (!supabase) return
+
+  await flushSyncQueue()
+  await _pushPendingRefuels(vehicleId)
 
   const { data, error } = await supabase
     .from('refuels')
@@ -162,5 +176,27 @@ async function _syncRefuels(vehicleId: string) {
         r.cost_per_km ?? null, r.created_at, r.updated_at,
       ],
     ).catch(console.error)
+  }
+}
+
+async function _pushPendingRefuels(vehicleId: string) {
+  const db = getDb()
+  const rows = await db.getAllAsync<RefuelRow>(
+    'SELECT * FROM refuels WHERE vehicle_id=? AND sync_pending=1 ORDER BY updated_at ASC',
+    [vehicleId],
+  )
+
+  for (const row of rows) {
+    await _pushRefuel(deserializeRefuel(row))
+  }
+}
+
+type RefuelRow = Refuel & { is_full_tank: boolean | number; sync_pending?: number }
+
+function deserializeRefuel(row: RefuelRow): Refuel {
+  const { sync_pending: _syncPending, ...refuel } = row
+  return {
+    ...refuel,
+    is_full_tank: Boolean(refuel.is_full_tank),
   }
 }

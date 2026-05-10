@@ -80,3 +80,12 @@ export const CREATE_TRIPS = `
     sync_pending INTEGER NOT NULL DEFAULT 0
   )
 `
+
+export const CREATE_SYNC_QUEUE = `
+  CREATE TABLE IF NOT EXISTS sync_queue (
+    id TEXT PRIMARY KEY,
+    entity_type TEXT NOT NULL,
+    entity_id TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  )
+`

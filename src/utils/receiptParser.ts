@@ -2,6 +2,9 @@ export interface ParsedReceiptData {
   date?: string
   liters?: number
   amountEur?: number
+  pricePerLiter?: number
+  confidence: number
+  isReliable: boolean
   warnings: string[]
   normalizedText: string
 }
@@ -10,6 +13,7 @@ const LITER_KEYWORDS = ['litri', 'litro', 'liters', 'liter', 'lt', 'l']
 const AMOUNT_KEYWORDS = ['totale', 'tot', 'importo', 'pagato', 'euro', 'eur', 'corrispettivo']
 
 export function parseReceiptText(rawText: string): ParsedReceiptData {
+  // R1.3 - estende il parsing OCR assistito con confidenza e prezzo/litro senza cambiare il flusso esistente.
   const normalizedText = normalizeReceiptText(rawText)
   const lines = normalizedText
     .split('\n')
@@ -19,6 +23,8 @@ export function parseReceiptText(rawText: string): ParsedReceiptData {
   const date = extractDate(normalizedText)
   const liters = extractLiters(lines)
   const amountEur = extractAmount(lines)
+  const pricePerLiter = extractPricePerLiter(lines, liters, amountEur)
+  const confidence = calculateConfidence({ date, liters, amountEur, pricePerLiter })
 
   const warnings: string[] = []
   if (!date) {
@@ -30,11 +36,17 @@ export function parseReceiptText(rawText: string): ParsedReceiptData {
   if (amountEur == null) {
     warnings.push('Importo non riconosciuto automaticamente.')
   }
+  if (confidence < 0.8) {
+    warnings.push('Riconoscimento parziale: verifica con attenzione i valori compilati.')
+  }
 
   return {
     date: date ?? undefined,
     liters: liters ?? undefined,
     amountEur: amountEur ?? undefined,
+    pricePerLiter: pricePerLiter ?? undefined,
+    confidence,
+    isReliable: confidence >= 0.8,
     warnings,
     normalizedText,
   }
@@ -98,6 +110,23 @@ function extractAmount(lines: string[]): number | null {
   return fallback ?? null
 }
 
+function extractPricePerLiter(
+  lines: string[],
+  liters: number | null,
+  amountEur: number | null,
+): number | null {
+  const keywordMatch = findNumberByKeyword(lines, ['€/l', 'eur/l', 'euro/l', 'prezzo/l', 'prezzo litro'])
+  if (keywordMatch != null) {
+    return keywordMatch
+  }
+
+  if (liters != null && amountEur != null && liters > 0) {
+    return Number.parseFloat((amountEur / liters).toFixed(3))
+  }
+
+  return null
+}
+
 function findNumberByKeyword(lines: string[], keywords: string[]): number | null {
   for (const line of lines) {
     const lower = line.toLowerCase()
@@ -123,4 +152,19 @@ function extractNumbersFromLine(line: string): number[] {
   return matches
     .map((value) => Number.parseFloat(value.replace(',', '.')))
     .filter((value) => Number.isFinite(value))
+}
+
+function calculateConfidence({
+  date,
+  liters,
+  amountEur,
+  pricePerLiter,
+}: {
+  date: string | null
+  liters: number | null
+  amountEur: number | null
+  pricePerLiter: number | null
+}): number {
+  const matchedFields = [date, liters, amountEur, pricePerLiter].filter((value) => value != null).length
+  return matchedFields / 4
 }

@@ -2,20 +2,25 @@ import { useEffect, useState } from 'react'
 import { Alert, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
 import { ActionButton } from '../../src/components/ui/ActionButton'
 import { AppScreen } from '../../src/components/ui/AppScreen'
+import { DateField } from '../../src/components/ui/DateField'
 import { Panel } from '../../src/components/ui/Panel'
 import { ScreenHeader } from '../../src/components/ui/ScreenHeader'
+import { SelectField } from '../../src/components/ui/SelectField'
 import { StatusPill } from '../../src/components/ui/StatusPill'
 import { useAuthStore } from '../../src/store/authStore'
 import { useMaintenanceStore } from '../../src/store/maintenanceStore'
 import { useRefuelStore } from '../../src/store/refuelStore'
 import { useVehicleStore } from '../../src/store/vehicleStore'
-import { colors, designPreset, font, radius, spacing } from '../../src/theme'
+import { useTheme } from '../../src/useTheme'
 import { MAINTENANCE_ICONS, MAINTENANCE_LABELS, type MaintenanceType } from '../../src/types/maintenance'
 import { daysUntilDue, getStatus, kmUntilDue } from '../../src/utils/maintenanceChecker'
 
 const TYPES = Object.entries(MAINTENANCE_LABELS) as [MaintenanceType, string][]
 
 export default function MaintenanceScreen() {
+  const theme = useTheme()
+  const styles = createStyles(theme)
+  const { colors, designPreset } = theme
   const { user } = useAuthStore()
   const { activeVehicle } = useVehicleStore()
   const { refuels } = useRefuelStore()
@@ -131,27 +136,20 @@ export default function MaintenanceScreen() {
               title="Nuova scadenza manutenzione"
               subtitle="Puoi usare intervallo in km, in mesi oppure entrambi."
             >
-              <Text style={styles.sectionLabel}>Tipo intervento</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipsScroll}>
-                <View style={styles.chipsRow}>
-                  {TYPES.map(([key, value]) => (
-                    <TouchableOpacity
-                      key={key}
-                      style={[styles.chip, type === key && styles.chipActive]}
-                      onPress={() => setType(key)}
-                    >
-                      <Text style={[styles.chipText, type === key && styles.chipTextActive]}>
-                        {MAINTENANCE_ICONS[key]} {value}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </ScrollView>
+              <SelectField
+                label="Tipo intervento"
+                value={type}
+                onChange={(nextValue) => setType(nextValue as MaintenanceType)}
+                options={TYPES.map(([key, value]) => ({
+                  value: key,
+                  label: `${MAINTENANCE_ICONS[key]} ${value}`,
+                }))}
+              />
 
               {type === 'custom' && (
                 <FormField label="Descrizione *" value={label} onChange={setLabel} placeholder="es. Sostituzione pastiglie" />
               )}
-              <FormField label="Data ultimo intervento" value={lastDate} onChange={setLastDate} placeholder="YYYY-MM-DD" />
+              <DateField label="Data ultimo intervento" value={lastDate} onChange={setLastDate} />
               <FormField label="Km ultimo intervento" value={lastKm} onChange={setLastKm} placeholder="12000" numeric />
               <View style={styles.splitRow}>
                 <View style={styles.splitCol}>
@@ -234,6 +232,8 @@ function FormField({
   placeholder?: string
   numeric?: boolean
 }) {
+  const theme = useTheme()
+  const styles = createStyles(theme)
   return (
     <View style={styles.field}>
       <Text style={styles.label}>{label}</Text>
@@ -242,14 +242,17 @@ function FormField({
         value={value}
         onChangeText={onChange}
         placeholder={placeholder}
-        placeholderTextColor={colors.textMuted}
+        placeholderTextColor={theme.colors.textMuted}
         keyboardType={numeric ? 'numeric' : 'default'}
       />
     </View>
   )
 }
 
-const styles = StyleSheet.create({
+function createStyles(theme: ReturnType<typeof useTheme>) {
+  const { colors, font, radius, spacing } = theme
+
+  return StyleSheet.create({
   centerIcon: {
     fontSize: 52,
     textAlign: 'center',
@@ -260,9 +263,6 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm,
     letterSpacing: 1.2,
     textTransform: 'uppercase',
-  },
-  chipsScroll: {
-    marginBottom: spacing.md,
   },
   topCtaWrap: {
     marginBottom: spacing.md,
@@ -292,30 +292,6 @@ const styles = StyleSheet.create({
     marginTop: 4,
     textTransform: 'uppercase',
     letterSpacing: 1,
-  },
-  chipsRow: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-  },
-  chip: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: 10,
-    borderRadius: radius.full,
-    borderWidth: 1,
-    borderColor: colors.borderStrong,
-    backgroundColor: colors.panelRaised,
-  },
-  chipActive: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primaryEdge,
-  },
-  chipText: {
-    color: colors.textSecondary,
-    fontSize: font.sm,
-    fontWeight: '600',
-  },
-  chipTextActive: {
-    color: '#fff',
   },
   field: {
     marginBottom: spacing.md,
@@ -353,4 +329,5 @@ const styles = StyleSheet.create({
     fontSize: font.sm,
     fontWeight: '700',
   },
-})
+  })
+}

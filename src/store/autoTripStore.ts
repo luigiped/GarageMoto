@@ -1,13 +1,24 @@
 import { create } from 'zustand'
-import {
-  finalizeCurrentSession,
-  getAutoTripSession,
-  getIsAutoTripTaskActive,
-  loadAutoTripEnabled,
-  requestAutoTripPermissions,
-  setAutoTripEnabled,
-  syncAutoTripContext,
-} from '../services/autoTrip'
+
+const AUTO_TRIP_UNAVAILABLE_MESSAGE =
+  'Tracking automatico non disponibile in questa build. Usa la development build sul telefono.'
+
+type AutoTripService = typeof import('../services/autoTrip')
+
+let autoTripServicePromise: Promise<AutoTripService | null> | null = null
+
+async function loadAutoTripService(): Promise<AutoTripService | null> {
+  if (!autoTripServicePromise) {
+    autoTripServicePromise = import('../services/autoTrip')
+      .then((service) => service)
+      .catch((error) => {
+        console.error('[autoTripStore] service unavailable:', error)
+        return null
+      })
+  }
+
+  return autoTripServicePromise
+}
 
 interface AutoTripStore {
   enabled: boolean
@@ -36,40 +47,86 @@ export const useAutoTripStore = create<AutoTripStore>((set, get) => ({
   vehicleId: null,
 
   bootstrap: async () => {
-    const enabled = await loadAutoTripEnabled()
-    const session = await getAutoTripSession()
-    const isTaskActive = await getIsAutoTripTaskActive()
+    const service = await loadAutoTripService()
+    if (!service) {
+      set({
+        enabled: false,
+        isRecording: false,
+        isTaskActive: false,
+        isReady: true,
+        error: AUTO_TRIP_UNAVAILABLE_MESSAGE,
+      })
+      return
+    }
+
+    const [enabled, session, isTaskActive] = await Promise.all([
+      service.loadAutoTripEnabled(),
+      service.getAutoTripSession(),
+      service.getIsAutoTripTaskActive(),
+    ])
+
     set({
       enabled,
       isRecording: Boolean(session),
       isTaskActive,
       isReady: true,
+      error: null,
     })
   },
 
   refreshStatus: async () => {
-    const session = await getAutoTripSession()
-    const isTaskActive = await getIsAutoTripTaskActive()
+    const service = await loadAutoTripService()
+    if (!service) {
+      set({
+        enabled: false,
+        isRecording: false,
+        isTaskActive: false,
+        error: AUTO_TRIP_UNAVAILABLE_MESSAGE,
+      })
+      return
+    }
+
+    const [session, isTaskActive] = await Promise.all([
+      service.getAutoTripSession(),
+      service.getIsAutoTripTaskActive(),
+    ])
+
     set({
       isRecording: Boolean(session),
       isTaskActive,
+      error: null,
     })
   },
 
   setContext: async (userId, vehicleId) => {
     set({ userId, vehicleId })
-    await syncAutoTripContext(userId && vehicleId ? { userId, vehicleId } : null)
+    const service = await loadAutoTripService()
+    if (!service) {
+      set({ error: AUTO_TRIP_UNAVAILABLE_MESSAGE })
+      return
+    }
+
+    await service.syncAutoTripContext(userId && vehicleId ? { userId, vehicleId } : null)
     await get().refreshStatus()
   },
 
   setEnabled: async (enabled) => {
     set({ isBusy: true, error: null })
     try {
+      const service = await loadAutoTripService()
+      if (!service) {
+        set({
+          isBusy: false,
+          error: AUTO_TRIP_UNAVAILABLE_MESSAGE,
+        })
+        return false
+      }
+
       const { userId, vehicleId } = get()
       const context = userId && vehicleId ? { userId, vehicleId } : null
 
       if (enabled) {
-        const granted = await requestAutoTripPermissions()
+        const granted = await service.requestAutoTripPermissions()
         if (!granted) {
           set({
             isBusy: false,
@@ -79,9 +136,12 @@ export const useAutoTripStore = create<AutoTripStore>((set, get) => ({
         }
       }
 
-      await setAutoTripEnabled(enabled, context)
-      const session = await getAutoTripSession()
-      const isTaskActive = await getIsAutoTripTaskActive()
+      await service.setAutoTripEnabled(enabled, context)
+      const [session, isTaskActive] = await Promise.all([
+        service.getAutoTripSession(),
+        service.getIsAutoTripTaskActive(),
+      ])
+
       set({
         enabled,
         isRecording: Boolean(session),
@@ -102,7 +162,16 @@ export const useAutoTripStore = create<AutoTripStore>((set, get) => ({
   stopCurrentTrip: async () => {
     set({ isBusy: true, error: null })
     try {
-      await finalizeCurrentSession()
+      const service = await loadAutoTripService()
+      if (!service) {
+        set({
+          isBusy: false,
+          error: AUTO_TRIP_UNAVAILABLE_MESSAGE,
+        })
+        return
+      }
+
+      await service.finalizeCurrentSession()
       await get().refreshStatus()
       set({ isBusy: false })
     } catch (error) {

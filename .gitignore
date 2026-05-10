@@ -19,6 +19,7 @@ android/
 .DS_Store
 **/.DS_Store
 *.swp
+docs/errore.jpeg
 
 # ─── DATABASE LOCALE ──────────────────────────────────────────────────────────
 *.db

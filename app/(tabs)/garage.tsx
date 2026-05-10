@@ -9,7 +9,7 @@ import { StatusPill } from '../../src/components/ui/StatusPill'
 import { getVehicleImageUri, removeVehicleImageUri, setVehicleImageUri } from '../../src/services/vehicleImageStore'
 import { useAuthStore } from '../../src/store/authStore'
 import { useVehicleStore } from '../../src/store/vehicleStore'
-import { colors, font, radius, spacing } from '../../src/theme'
+import { useTheme } from '../../src/useTheme'
 import type { FuelType } from '../../src/types/vehicle'
 
 const FUEL_TYPES: { value: FuelType; label: string }[] = [
@@ -20,6 +20,8 @@ const FUEL_TYPES: { value: FuelType; label: string }[] = [
 ]
 
 export default function GarageScreen() {
+  const theme = useTheme()
+  const styles = createStyles(theme)
   const { user } = useAuthStore()
   const { vehicles, activeVehicle, setActiveVehicle, addVehicle, deleteVehicle } = useVehicleStore()
   const [showForm, setShowForm] = useState(false)
@@ -159,7 +161,7 @@ export default function GarageScreen() {
         >
           <View style={styles.activeHero}>
             {activeVehicleImageUri ? (
-              <Image source={{ uri: activeVehicleImageUri }} style={styles.vehiclePhoto} />
+              <Image source={{ uri: activeVehicleImageUri }} style={styles.vehiclePhoto} resizeMode="contain" />
             ) : (
               <View style={styles.vehiclePhotoPlaceholder}>
                 <Text style={styles.vehiclePhotoEmoji}>🏍️</Text>
@@ -180,6 +182,7 @@ export default function GarageScreen() {
               onPress={() => { void handlePickVehicleImage() }}
               loading={pickingImage}
             />
+            <Text style={styles.photoHint}>Per il risultato migliore usa immagine scontornata o PNG trasparente.</Text>
             {activeVehicleImageUri ? (
               <ActionButton label="Rimuovi foto moto" variant="danger" onPress={() => { void handleRemoveVehicleImage() }} />
             ) : null}
@@ -296,6 +299,8 @@ function FormField({
   numeric?: boolean
   decimal?: boolean
 }) {
+  const theme = useTheme()
+  const styles = createStyles(theme)
   return (
     <View style={styles.field}>
       <Text style={styles.label}>{label}</Text>
@@ -304,14 +309,17 @@ function FormField({
         value={value}
         onChangeText={onChange}
         placeholder={placeholder}
-        placeholderTextColor={colors.textMuted}
+        placeholderTextColor={theme.colors.textMuted}
         keyboardType={decimal ? 'decimal-pad' : numeric ? 'numeric' : 'default'}
       />
     </View>
   )
 }
 
-const styles = StyleSheet.create({
+function createStyles(theme: ReturnType<typeof useTheme>) {
+  const { colors, font, radius, spacing } = theme
+
+  return StyleSheet.create({
   icon: {
     color: '#fff',
     fontSize: font.base,
@@ -337,16 +345,12 @@ const styles = StyleSheet.create({
     fontSize: font.sm,
   },
   vehiclePhoto: {
-    width: 112,
-    height: 112,
-    borderRadius: radius.xl,
-    borderWidth: 1,
-    borderColor: colors.borderStrong,
-    backgroundColor: colors.surfaceDk,
+    width: 132,
+    height: 132,
   },
   vehiclePhotoPlaceholder: {
-    width: 112,
-    height: 112,
+    width: 132,
+    height: 132,
     borderRadius: radius.xl,
     borderWidth: 1,
     borderColor: colors.borderStrong,
@@ -361,6 +365,11 @@ const styles = StyleSheet.create({
   vehiclePhotoText: {
     color: colors.textMuted,
     fontSize: font.sm,
+  },
+  photoHint: {
+    color: colors.textMuted,
+    fontSize: font.sm,
+    lineHeight: 18,
   },
   field: {
     marginBottom: spacing.md,
@@ -471,4 +480,5 @@ const styles = StyleSheet.create({
     fontSize: font.sm,
     fontWeight: '700',
   },
-})
+  })
+}

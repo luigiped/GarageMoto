@@ -7,6 +7,7 @@ import { supabase } from './supabase'
 import { createId } from '../utils/id'
 import type { NewTrip, RoutePoint, Trip } from '../types/trip'
 import { validateTrip } from './location'
+import { computeMaxBrakingG } from '../utils/tripMetrics'
 
 const AUTO_TRIP_ENABLED_KEY = 'garagemoto:auto-trip-enabled'
 const AUTO_TRIP_CONTEXT_KEY = 'garagemoto:auto-trip-context'
@@ -220,6 +221,7 @@ async function saveSessionTrip(session: AutoTripSession): Promise<void> {
   }
 
   const avgSpeed = session.points.reduce((sum, point) => sum + point.speedKmh, 0) / session.points.length
+  const maxBrakingG = computeMaxBrakingG(session.points)
   const newTrip: NewTrip = {
     user_id: session.context.userId,
     vehicle_id: session.context.vehicleId,
@@ -232,7 +234,7 @@ async function saveSessionTrip(session: AutoTripSession): Promise<void> {
     max_lean_angle_deg: null,
     max_lean_left_deg: null,
     max_lean_right_deg: null,
-    max_braking_g: null,
+    max_braking_g: maxBrakingG,
     route_json: JSON.stringify(session.points),
   }
 

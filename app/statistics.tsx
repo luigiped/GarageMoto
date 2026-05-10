@@ -7,7 +7,7 @@ import { ScreenHeader } from '../src/components/ui/ScreenHeader'
 import { useRefuelStore } from '../src/store/refuelStore'
 import { useTripStore } from '../src/store/tripStore'
 import { useVehicleStore } from '../src/store/vehicleStore'
-import { colors, designPreset, font, radius, spacing } from '../src/theme'
+import { useTheme } from '../src/useTheme'
 import { formatEuro } from '../src/utils/formatters'
 import {
   consumptionSeries,
@@ -25,6 +25,9 @@ type ChartPoint = { label: string; value: number }
 const PERIODS: Period[] = ['1M', '3M', '6M', '1A', 'Tutto']
 
 export default function StatisticsScreen() {
+  const theme = useTheme()
+  const styles = createStyles(theme)
+  const { colors, designPreset } = theme
   const { activeVehicle } = useVehicleStore()
   const { refuels, loadRefuels } = useRefuelStore()
   const { trips, loadTrips } = useTripStore()
@@ -142,6 +145,7 @@ function ChartPanel({
   emptyText: string
   valueFormatter: (value: number) => string
 }) {
+  const styles = createStyles(useTheme())
   const nonZero = data.filter((item) => item.value > 0)
   const maxValue = Math.max(...nonZero.map((item) => item.value), 0)
 
@@ -171,107 +175,111 @@ function ChartPanel({
   )
 }
 
-const styles = StyleSheet.create({
-  summaryGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.sm,
-  },
-  summaryCell: {
-    flex: 1,
-    minWidth: '47%',
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surfaceDk,
-    padding: spacing.md,
-  },
-  summaryValue: {
-    color: colors.textPrimary,
-    fontSize: font.xl,
-    fontWeight: '800',
-  },
-  summaryLabel: {
-    color: colors.textMuted,
-    fontSize: font.sm,
-    letterSpacing: 1,
-    textTransform: 'uppercase',
-    marginTop: 4,
-  },
-  periodScroll: {
-    marginBottom: spacing.md,
-  },
-  periodRow: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-  },
-  chip: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: 10,
-    borderRadius: radius.full,
-    borderWidth: 1,
-    borderColor: colors.borderStrong,
-    backgroundColor: colors.panelRaised,
-  },
-  chipActive: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primaryEdge,
-  },
-  chipText: {
-    color: colors.textSecondary,
-    fontSize: font.sm,
-    fontWeight: '700',
-  },
-  chipTextActive: {
-    color: '#fff',
-  },
-  metricGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.sm,
-    marginBottom: spacing.md,
-  },
-  chartRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    gap: spacing.md,
-    paddingTop: spacing.sm,
-    paddingBottom: spacing.xs,
-  },
-  barItem: {
-    width: 70,
-    alignItems: 'center',
-  },
-  barValue: {
-    color: colors.textPrimary,
-    fontSize: 11,
-    marginBottom: spacing.xs,
-    textAlign: 'center',
-  },
-  barTrack: {
-    width: 30,
-    height: 144,
-    borderRadius: radius.md,
-    backgroundColor: colors.cardDk,
-    borderWidth: 1,
-    borderColor: colors.border,
-    justifyContent: 'flex-end',
-    overflow: 'hidden',
-  },
-  barFill: {
-    width: '100%',
-    borderRadius: radius.md,
-  },
-  barLabel: {
-    color: colors.textMuted,
-    fontSize: 10,
-    textAlign: 'center',
-    marginTop: spacing.xs,
-  },
-  emptyText: {
-    color: colors.textSecondary,
-    fontSize: font.sm,
-    textAlign: 'center',
-    paddingVertical: spacing.md,
-  },
-})
+function createStyles(theme: ReturnType<typeof useTheme>) {
+  const { colors, font, radius, spacing } = theme
+
+  return StyleSheet.create({
+    summaryGrid: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: spacing.sm,
+    },
+    summaryCell: {
+      flex: 1,
+      minWidth: '47%',
+      borderRadius: radius.lg,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surfaceDk,
+      padding: spacing.md,
+    },
+    summaryValue: {
+      color: colors.textPrimary,
+      fontSize: font.xl,
+      fontWeight: '800',
+    },
+    summaryLabel: {
+      color: colors.textMuted,
+      fontSize: font.sm,
+      letterSpacing: 1,
+      textTransform: 'uppercase',
+      marginTop: 4,
+    },
+    periodScroll: {
+      marginBottom: spacing.md,
+    },
+    periodRow: {
+      flexDirection: 'row',
+      gap: spacing.sm,
+    },
+    chip: {
+      paddingHorizontal: spacing.md,
+      paddingVertical: 10,
+      borderRadius: radius.full,
+      borderWidth: 1,
+      borderColor: colors.borderStrong,
+      backgroundColor: colors.panelRaised,
+    },
+    chipActive: {
+      backgroundColor: colors.primary,
+      borderColor: colors.primaryEdge,
+    },
+    chipText: {
+      color: colors.textSecondary,
+      fontSize: font.sm,
+      fontWeight: '700',
+    },
+    chipTextActive: {
+      color: '#fff',
+    },
+    metricGrid: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: spacing.sm,
+      marginBottom: spacing.md,
+    },
+    chartRow: {
+      flexDirection: 'row',
+      alignItems: 'flex-end',
+      gap: spacing.md,
+      paddingTop: spacing.sm,
+      paddingBottom: spacing.xs,
+    },
+    barItem: {
+      width: 70,
+      alignItems: 'center',
+    },
+    barValue: {
+      color: colors.textPrimary,
+      fontSize: 11,
+      marginBottom: spacing.xs,
+      textAlign: 'center',
+    },
+    barTrack: {
+      width: 30,
+      height: 144,
+      borderRadius: radius.md,
+      backgroundColor: colors.cardDk,
+      borderWidth: 1,
+      borderColor: colors.border,
+      justifyContent: 'flex-end',
+      overflow: 'hidden',
+    },
+    barFill: {
+      width: '100%',
+      borderRadius: radius.md,
+    },
+    barLabel: {
+      color: colors.textMuted,
+      fontSize: 10,
+      textAlign: 'center',
+      marginTop: spacing.xs,
+    },
+    emptyText: {
+      color: colors.textSecondary,
+      fontSize: font.sm,
+      textAlign: 'center',
+      paddingVertical: spacing.md,
+    },
+  })
+}

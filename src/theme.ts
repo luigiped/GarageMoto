@@ -1,3 +1,5 @@
+import AsyncStorage from '@react-native-async-storage/async-storage'
+
 // Design system GarageMoto.
 //
 // UX STYLE:
@@ -28,6 +30,8 @@ export const AVAILABLE_COLOR_THEMES: ColorTheme[] = ['rally', 'cobalt', 'rosso',
 
 export const ACTIVE_UI_STYLE: UiStyle = 'glass'
 export const ACTIVE_COLOR_THEME: ColorTheme = 'cobalt'
+export const UI_STYLE_STORAGE_KEY = 'garagemoto.ui_style'
+export const COLOR_THEME_STORAGE_KEY = 'garagemoto.color_theme'
 
 type ThemeShape = {
   colors: {
@@ -397,11 +401,54 @@ const THEMES: Record<ColorTheme, ThemeShape> = {
 
 // ─── Export ───────────────────────────────────────────────────────────────────
 
-const activeTheme = THEMES[ACTIVE_COLOR_THEME]
+export function getTheme(colorTheme: ColorTheme): ThemeShape {
+  return THEMES[colorTheme]
+}
 
-export const designPreset = ACTIVE_UI_STYLE
-export const colorTheme = ACTIVE_COLOR_THEME
-export const colors = activeTheme.colors
-export const spacing = activeTheme.spacing
-export const radius = activeTheme.radius
-export const font = activeTheme.font
+let activeUiStyle: UiStyle = ACTIVE_UI_STYLE
+let activeColorTheme: ColorTheme = ACTIVE_COLOR_THEME
+let activeTheme = getTheme(ACTIVE_COLOR_THEME)
+
+export let designPreset: UiStyle = activeUiStyle
+export let colorTheme: ColorTheme = activeColorTheme
+export let colors: ThemeShape['colors'] = activeTheme.colors
+export let spacing: ThemeShape['spacing'] = activeTheme.spacing
+export let radius: ThemeShape['radius'] = activeTheme.radius
+export let font: ThemeShape['font'] = activeTheme.font
+
+export function applyThemeSelection(uiStyle: UiStyle, nextColorTheme: ColorTheme) {
+  activeUiStyle = uiStyle
+  activeColorTheme = nextColorTheme
+  activeTheme = getTheme(nextColorTheme)
+  designPreset = activeUiStyle
+  colorTheme = activeColorTheme
+  colors = activeTheme.colors
+  spacing = activeTheme.spacing
+  radius = activeTheme.radius
+  font = activeTheme.font
+}
+
+export async function persistThemeSelection(uiStyle: UiStyle, nextColorTheme: ColorTheme) {
+  await AsyncStorage.multiSet([
+    [UI_STYLE_STORAGE_KEY, uiStyle],
+    [COLOR_THEME_STORAGE_KEY, nextColorTheme],
+  ])
+}
+
+export async function hydrateThemeSelection() {
+  try {
+    const entries = await AsyncStorage.multiGet([UI_STYLE_STORAGE_KEY, COLOR_THEME_STORAGE_KEY])
+    const storedUiStyle = entries[0]?.[1]
+    const storedColorTheme = entries[1]?.[1]
+    const nextUiStyle = AVAILABLE_UI_STYLES.includes(storedUiStyle as UiStyle)
+      ? storedUiStyle as UiStyle
+      : ACTIVE_UI_STYLE
+    const nextColorTheme = AVAILABLE_COLOR_THEMES.includes(storedColorTheme as ColorTheme)
+      ? storedColorTheme as ColorTheme
+      : ACTIVE_COLOR_THEME
+    applyThemeSelection(nextUiStyle, nextColorTheme)
+  } catch (error) {
+    console.error('[theme] hydrate selection:', error)
+    applyThemeSelection(ACTIVE_UI_STYLE, ACTIVE_COLOR_THEME)
+  }
+}

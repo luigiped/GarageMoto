@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { Alert, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native'
+import Constants from 'expo-constants'
+import { Alert, Platform, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native'
 import MapView, { Polyline, PROVIDER_DEFAULT } from 'react-native-maps'
 import { ActionButton } from '../../src/components/ui/ActionButton'
 import { AppScreen } from '../../src/components/ui/AppScreen'
@@ -10,9 +11,10 @@ import { useAuthStore } from '../../src/store/authStore'
 import { useAutoTripStore } from '../../src/store/autoTripStore'
 import { useTripStore } from '../../src/store/tripStore'
 import { useVehicleStore } from '../../src/store/vehicleStore'
-import { colors, designPreset, font, radius, spacing } from '../../src/theme'
+import { useTheme } from '../../src/useTheme'
 import type { RoutePoint } from '../../src/types/trip'
 import { formatDate } from '../../src/utils/formatters'
+import { computeMaxBrakingG } from '../../src/utils/tripMetrics'
 import {
   calibrateLeanAngle,
   createLeanAngleSummary,
@@ -27,7 +29,20 @@ import { requestLocationPermission, startTracking, stopTracking, validateTrip } 
 
 type Screen = 'list' | 'recording' | 'detail'
 
+type ExpoAndroidMapsConfig = {
+  android?: {
+    config?: {
+      googleMaps?: {
+        apiKey?: string
+      }
+    }
+  }
+}
+
 export default function TripsScreen() {
+  const theme = useTheme()
+  const styles = createStyles(theme)
+  const { colors, designPreset } = theme
   const { user } = useAuthStore()
   const { enabled: autoTripEnabled, isRecording: autoTripRecording, stopCurrentTrip } = useAutoTripStore()
   const { activeVehicle } = useVehicleStore()
@@ -50,6 +65,8 @@ export default function TripsScreen() {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const { width } = useWindowDimensions()
   const mapHeight = Math.round(width * 0.68)
+  const expoConfig = Constants.expoConfig as ExpoAndroidMapsConfig | null
+  const canRenderNativeMap = Platform.OS !== 'android' || Boolean(expoConfig?.android?.config?.googleMaps?.apiKey)
 
   useEffect(() => {
     if (activeVehicle?.id) {
@@ -150,6 +167,7 @@ export default function TripsScreen() {
     }
 
     const avgSpeed = points.length > 0 ? points.reduce((sum, point) => sum + point.speedKmh, 0) / points.length : 0
+    const maxBrakingG = computeMaxBrakingG(points)
 
     await saveTrip({
       user_id: user.id,
@@ -163,7 +181,7 @@ export default function TripsScreen() {
       max_lean_angle_deg: leanSummary.maxLeanAngleDeg || null,
       max_lean_left_deg: leanSummary.maxLeanLeftDeg || null,
       max_lean_right_deg: leanSummary.maxLeanRightDeg || null,
-      max_braking_g: null,
+      max_braking_g: maxBrakingG,
       route_json: JSON.stringify(points),
     })
     Alert.alert('Viaggio salvato', `${validated.distanceKm.toFixed(1)} km`)
@@ -245,16 +263,20 @@ export default function TripsScreen() {
           <Text style={styles.liveTimer}>{formatElapsed(elapsed)}</Text>
           <ActionButton label="Stop" variant="danger" compact onPress={() => { void handleStop() }} />
         </View>
-        <MapView
-          ref={mapRef}
-          style={{ width, height: mapHeight }}
-          provider={PROVIDER_DEFAULT}
-          initialRegion={{ latitude: 41.9, longitude: 12.5, latitudeDelta: 0.05, longitudeDelta: 0.05 }}
-          showsUserLocation
-          followsUserLocation
-        >
-          {polyCoords.length > 1 ? <Polyline coordinates={polyCoords} strokeColor={colors.primary} strokeWidth={4} /> : null}
-        </MapView>
+        {canRenderNativeMap ? (
+          <MapView
+            ref={mapRef}
+            style={{ width, height: mapHeight }}
+            provider={PROVIDER_DEFAULT}
+            initialRegion={{ latitude: 41.9, longitude: 12.5, latitudeDelta: 0.05, longitudeDelta: 0.05 }}
+            showsUserLocation
+            followsUserLocation
+          >
+            {polyCoords.length > 1 ? <Polyline coordinates={polyCoords} strokeColor={colors.primary} strokeWidth={4} /> : null}
+          </MapView>
+        ) : (
+          <MapFallback height={mapHeight} />
+        )}
         <View style={styles.liveStats}>
           <StatCell value={`${distKm.toFixed(1)} km`} label="distanza" />
           <StatCell value={`${currentSpeed} km/h`} label="velocita" />
@@ -287,15 +309,19 @@ export default function TripsScreen() {
           <Text style={styles.detailTitle}>{formatDate(trip.start_time.slice(0, 10))}</Text>
           <View style={{ width: 56 }} />
         </View>
-        <MapView
-          style={{ width, height: mapHeight }}
-          provider={PROVIDER_DEFAULT}
-          initialRegion={center
-            ? { latitude: center.lat, longitude: center.lng, latitudeDelta: 0.05, longitudeDelta: 0.05 }
-            : { latitude: 41.9, longitude: 12.5, latitudeDelta: 0.1, longitudeDelta: 0.1 }}
-        >
-          {polyCoords.length > 1 ? <Polyline coordinates={polyCoords} strokeColor={colors.primary} strokeWidth={4} /> : null}
-        </MapView>
+        {canRenderNativeMap ? (
+          <MapView
+            style={{ width, height: mapHeight }}
+            provider={PROVIDER_DEFAULT}
+            initialRegion={center
+              ? { latitude: center.lat, longitude: center.lng, latitudeDelta: 0.05, longitudeDelta: 0.05 }
+              : { latitude: 41.9, longitude: 12.5, latitudeDelta: 0.1, longitudeDelta: 0.1 }}
+          >
+            {polyCoords.length > 1 ? <Polyline coordinates={polyCoords} strokeColor={colors.primary} strokeWidth={4} /> : null}
+          </MapView>
+        ) : (
+          <MapFallback height={mapHeight} />
+        )}
         <AppScreen>
           <Panel title="Dati viaggio" subtitle="Distanza, durata e velocita del percorso registrato." tone="info">
             <View style={styles.tripStatsRow}>
@@ -305,14 +331,15 @@ export default function TripsScreen() {
               <StatCell value={`${trip.max_speed_kmh.toFixed(1)} km/h`} label="max" />
             </View>
           </Panel>
-          <Panel title="Angolo di piega" subtitle="Dato indicativo ricavato dai sensori del telefono." tone="warning">
+          <Panel title="Dinamica sensori" subtitle="Dati indicativi ricavati da sensori e velocita del telefono." tone="warning">
             <View style={styles.tripStatsRow}>
               <StatCell value={trip.max_lean_angle_deg != null ? `${trip.max_lean_angle_deg.toFixed(0)}°` : '--'} label="massima" />
               <StatCell value={trip.max_lean_left_deg != null ? `${trip.max_lean_left_deg.toFixed(0)}°` : '--'} label="sinistra" />
               <StatCell value={trip.max_lean_right_deg != null ? `${trip.max_lean_right_deg.toFixed(0)}°` : '--'} label="destra" />
+              <StatCell value={trip.max_braking_g != null ? `${trip.max_braking_g.toFixed(2)} g` : '--'} label="frenata" />
             </View>
             <Text style={styles.noteText}>
-              Valido solo con telefono montato verticalmente sul manubrio. Errore stimato: ±5-10 gradi.
+              Piega valida solo con telefono montato verticalmente sul manubrio. Frenata massima stimata da variazione velocita: valore indicativo.
             </Text>
           </Panel>
         </AppScreen>
@@ -464,10 +491,26 @@ export default function TripsScreen() {
 }
 
 function StatCell({ value, label }: { value: string; label: string }) {
+  const styles = createStyles(useTheme())
   return (
     <View style={styles.statCell}>
       <Text style={styles.statValue}>{value}</Text>
       <Text style={styles.statLabel}>{label}</Text>
+    </View>
+  )
+}
+
+function MapFallback({ height }: { height: number }) {
+  const styles = createStyles(useTheme())
+
+  return (
+    <View style={[styles.mapFallback, { height }]}>
+      <Text style={styles.mapFallbackIcon}>🗺️</Text>
+      <Text style={styles.mapFallbackTitle}>Mappa disattivata su Android</Text>
+      <Text style={styles.mapFallbackText}>
+        Il viaggio continua a registrare percorso e statistiche. La mappa nativa Google richiede una API key dedicata; con il vincolo
+        di provider gratuiti questa build mostra solo il riepilogo testuale.
+      </Text>
     </View>
   )
 }
@@ -498,7 +541,10 @@ function simpleDistKm(a: RoutePoint, b: RoutePoint): number {
   return R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x))
 }
 
-const styles = StyleSheet.create({
+function createStyles(theme: ReturnType<typeof useTheme>) {
+  const { colors, font, radius, spacing } = theme
+
+  return StyleSheet.create({
   liveHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -521,6 +567,35 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     padding: spacing.md,
     backgroundColor: colors.bgDark,
+  },
+  mapFallback: {
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.lg,
+    backgroundColor: colors.surfaceDk,
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: colors.border,
+  },
+  mapFallbackIcon: {
+    fontSize: 38,
+    marginBottom: spacing.sm,
+  },
+  mapFallbackTitle: {
+    color: colors.textPrimary,
+    fontSize: font.lg,
+    fontWeight: '800',
+    marginBottom: spacing.sm,
+    textAlign: 'center',
+  },
+  mapFallbackText: {
+    color: colors.textSecondary,
+    fontSize: font.sm,
+    lineHeight: 20,
+    textAlign: 'center',
+    maxWidth: 320,
   },
   limitText: {
     color: colors.textSecondary,
@@ -638,4 +713,5 @@ const styles = StyleSheet.create({
     fontSize: font.sm,
     lineHeight: 19,
   },
-})
+  })
+}

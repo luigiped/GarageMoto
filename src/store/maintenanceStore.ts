@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { getDb } from '../db/client'
 import { supabase } from '../services/supabase'
 import { scheduleMaintenanceWarning, cancelNotification } from '../services/notifications'
+import { enqueueDelete, flushSyncQueue } from '../services/syncQueue'
 import { getStatus } from '../utils/maintenanceChecker'
 import { MAINTENANCE_LABELS } from '../types/maintenance'
 import type { Maintenance, NewMaintenance } from '../types/maintenance'
@@ -25,11 +26,11 @@ export const useMaintenanceStore = create<MaintenanceStore>((set, get) => ({
     set({ isLoading: true, error: null })
     try {
       const db = getDb()
-      const rows = await db.getAllAsync<Maintenance>(
+      const rows = await db.getAllAsync<MaintenanceRow>(
         'SELECT * FROM maintenance WHERE vehicle_id=? ORDER BY created_at DESC',
         [vehicleId],
       )
-      set({ items: rows, isLoading: false })
+      set({ items: rows.map(deserializeMaintenance), isLoading: false })
       _syncMaintenance(vehicleId)
     } catch (e) {
       console.error('[maintenanceStore] load:', e)
@@ -79,6 +80,7 @@ export const useMaintenanceStore = create<MaintenanceStore>((set, get) => ({
   deleteMaintenance: async (id) => {
     try {
       const db = getDb()
+      await enqueueDelete('maintenance', id)
       await db.runAsync('DELETE FROM maintenance WHERE id=?', [id])
       await cancelNotification(id)
       set({ items: get().items.filter(i => i.id !== id) })
@@ -97,7 +99,7 @@ export const useMaintenanceStore = create<MaintenanceStore>((set, get) => ({
 async function _pushMaintenance(item: Maintenance) {
   if (!supabase) return
 
-  const { error } = await supabase.from('maintenance').upsert(item)
+  const { error } = await supabase.from('maintenance').upsert(serializeMaintenance(item))
   if (error) {
     console.error('[maintenanceStore] sync push:', error)
   } else {
@@ -108,6 +110,9 @@ async function _pushMaintenance(item: Maintenance) {
 
 async function _syncMaintenance(vehicleId: string) {
   if (!supabase) return
+
+  await flushSyncQueue()
+  await _pushPendingMaintenance(vehicleId)
 
   const { data, error } = await supabase
     .from('maintenance')
@@ -128,5 +133,41 @@ async function _syncMaintenance(vehicleId: string) {
         m.interval_months ?? null, m.notes ?? null, m.created_at, m.updated_at,
       ],
     ).catch(console.error)
+  }
+}
+
+async function _pushPendingMaintenance(vehicleId: string) {
+  const db = getDb()
+  const rows = await db.getAllAsync<MaintenanceRow>(
+    'SELECT * FROM maintenance WHERE vehicle_id=? AND sync_pending=1 ORDER BY updated_at ASC',
+    [vehicleId],
+  )
+
+  for (const row of rows) {
+    await _pushMaintenance(deserializeMaintenance(row))
+  }
+}
+
+type MaintenanceRow = Maintenance & { sync_pending?: number }
+
+function deserializeMaintenance(row: MaintenanceRow): Maintenance {
+  const { sync_pending: _syncPending, ...maintenance } = row
+  return maintenance
+}
+
+function serializeMaintenance(item: Maintenance) {
+  return {
+    id: item.id,
+    user_id: item.user_id,
+    vehicle_id: item.vehicle_id,
+    type: item.type,
+    label: item.label ?? null,
+    last_date: item.last_date ?? null,
+    last_km: item.last_km ?? null,
+    interval_km: item.interval_km ?? null,
+    interval_months: item.interval_months ?? null,
+    notes: item.notes ?? null,
+    created_at: item.created_at,
+    updated_at: item.updated_at,
   }
 }

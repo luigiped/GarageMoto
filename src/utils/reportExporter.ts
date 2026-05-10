@@ -1,28 +1,37 @@
+// R1.3 - amplia il report PDF con sezioni manutenzione e riepiloghi piu completi senza introdurre nuove dipendenze.
+import type { Maintenance } from '../types/maintenance'
 import type { Refuel } from '../types/refuel'
 import type { Trip } from '../types/trip'
 import type { Vehicle } from '../types/vehicle'
 import { averageConsumption } from './fuelCalculator'
 import { formatDate, formatEuro, formatKm, formatKmL, formatPricePerLiter } from './formatters'
+import { MAINTENANCE_LABELS } from '../types/maintenance'
+import { daysUntilDue, getStatus, kmUntilDue } from './maintenanceChecker'
 import { buildPerformanceSummary } from './performanceBonus'
 
 export interface ReportExportPayload {
   vehicle: Vehicle
   refuels: Refuel[]
   trips: Trip[]
+  maintenance: Maintenance[]
 }
 
 export function buildReportHtml(payload: ReportExportPayload): string {
-  const { vehicle, refuels, trips } = payload
+  const { vehicle, refuels, trips, maintenance } = payload
   const now = new Date()
   const currentKm = refuels[0]?.odometer_km ?? vehicle.odometer_start_km
   const averageKmL = averageConsumption(refuels)
   const totalSpent = refuels.reduce((sum, refuel) => sum + refuel.amount_eur, 0)
   const totalLiters = refuels.reduce((sum, refuel) => sum + refuel.liters, 0)
   const totalTripKm = trips.reduce((sum, trip) => sum + trip.distance_km, 0)
+  const totalTripMinutes = trips.reduce((sum, trip) => sum + trip.duration_minutes, 0)
   const performance = buildPerformanceSummary(refuels, trips)
+  const reportPeriod = buildReportPeriod(refuels, trips, maintenance)
+  const urgentMaintenance = maintenance.filter((item) => getStatus(item, currentKm, now) !== 'ok')
 
   const latestRefuels = [...refuels].slice(0, 8)
   const latestTrips = [...trips].slice(0, 8)
+  const latestMaintenance = [...maintenance].slice(0, 8)
 
   return `<!DOCTYPE html>
 <html lang="it">
@@ -75,16 +84,35 @@ export function buildReportHtml(payload: ReportExportPayload): string {
         font-size: 12px;
         margin-bottom: 16px;
       }
+      .cover {
+        padding-bottom: 18px;
+        border-bottom: 2px solid #e5e7eb;
+        margin-bottom: 24px;
+      }
+      .section {
+        margin-top: 24px;
+      }
+      .footer {
+        margin-top: 32px;
+        padding-top: 12px;
+        border-top: 1px solid #e5e7eb;
+        font-size: 11px;
+        color: #6b7280;
+      }
     </style>
   </head>
   <body>
-    <h1>GarageMoto Report</h1>
-    <p class="muted">Generato il ${escapeHtml(now.toLocaleString('it-IT'))}</p>
-    <p class="badge">Release 1.3 - uso personale</p>
+    <div class="cover">
+      <h1>GarageMoto Report</h1>
+      <p class="muted">Generato il ${escapeHtml(now.toLocaleString('it-IT'))}</p>
+      <p class="badge">Release 1.3 - uso personale</p>
+      <h2>${escapeHtml(vehicle.nickname ?? `${vehicle.brand} ${vehicle.model}`)}</h2>
+      <p class="muted">${escapeHtml(vehicle.brand)} ${escapeHtml(vehicle.model)} · ${vehicle.year} · ${vehicle.tank_capacity_l.toFixed(1)} L</p>
+      <p class="muted">Periodo report: ${escapeHtml(reportPeriod)}</p>
+    </div>
 
-    <h2>${escapeHtml(vehicle.nickname ?? `${vehicle.brand} ${vehicle.model}`)}</h2>
-    <p class="muted">${escapeHtml(vehicle.brand)} ${escapeHtml(vehicle.model)} · ${vehicle.year} · ${vehicle.tank_capacity_l.toFixed(1)} L</p>
-
+    <div class="section">
+    <h2>Sezione 1 — Riepilogo</h2>
     <div class="grid">
       <div class="card">
         <div class="value">${escapeHtml(formatKm(currentKm))}</div>
@@ -103,8 +131,10 @@ export function buildReportHtml(payload: ReportExportPayload): string {
         <p class="muted">Km viaggi registrati</p>
       </div>
     </div>
+    </div>
 
-    <h2>Performance bonus</h2>
+    <div class="section">
+    <h2>Sezione 2 — Performance bonus</h2>
     <p class="muted">Suggerimenti sperimentali a partire dai dati salvati nell'app.</p>
     <div class="grid">
       <div class="card">
@@ -129,12 +159,26 @@ export function buildReportHtml(payload: ReportExportPayload): string {
         ? performance.insights.map((insight) => `<li>${escapeHtml(insight)}</li>`).join('')
         : '<li>Nessun insight disponibile: servono piu dati.</li>'}
     </ul>
+    </div>
 
-    <h2>Ultimi rifornimenti</h2>
+    <div class="section">
+    <h2>Sezione 3 — Rifornimenti</h2>
     ${latestRefuels.length > 0 ? renderRefuelsTable(latestRefuels) : '<p class="muted">Nessun rifornimento salvato.</p>'}
+    </div>
 
-    <h2>Ultimi viaggi</h2>
+    <div class="section">
+    <h2>Sezione 4 — Viaggi</h2>
+    <p class="muted">Totale viaggi: ${trips.length} · Durata complessiva: ${totalTripMinutes} min</p>
     ${latestTrips.length > 0 ? renderTripsTable(latestTrips) : '<p class="muted">Nessun viaggio salvato.</p>'}
+    </div>
+
+    <div class="section">
+    <h2>Sezione 5 — Manutenzione</h2>
+    <p class="muted">Interventi registrati: ${maintenance.length} · Scadenze da monitorare: ${urgentMaintenance.length}</p>
+    ${latestMaintenance.length > 0 ? renderMaintenanceTable(latestMaintenance, currentKm, now) : '<p class="muted">Nessun intervento di manutenzione salvato.</p>'}
+    </div>
+
+    <div class="footer">Generato da GarageMoto · ${escapeHtml(now.toLocaleDateString('it-IT'))}</div>
   </body>
 </html>`
 }
@@ -169,6 +213,7 @@ function renderRefuelsTable(refuels: Refuel[]): string {
         <td>${refuel.liters.toFixed(2)} L</td>
         <td>${escapeHtml(formatEuro(refuel.amount_eur))}</td>
         <td>${refuel.km_per_liter != null ? escapeHtml(formatKmL(refuel.km_per_liter)) : '--'}</td>
+        <td>${escapeHtml(formatPricePerLiter(refuel.amount_eur / refuel.liters))}</td>
       </tr>`)
     .join('')
 
@@ -180,6 +225,7 @@ function renderRefuelsTable(refuels: Refuel[]): string {
         <th>Litri</th>
         <th>Importo</th>
         <th>Consumo</th>
+        <th>Prezzo/L</th>
       </tr>
     </thead>
     <tbody>${rows}</tbody>
@@ -210,6 +256,67 @@ function renderTripsTable(trips: Trip[]): string {
     </thead>
     <tbody>${rows}</tbody>
   </table>`
+}
+
+function renderMaintenanceTable(maintenance: Maintenance[], currentKm: number, today: Date): string {
+  const rows = maintenance
+    .map((item) => {
+      const label = item.label ?? MAINTENANCE_LABELS[item.type]
+      const status = getStatus(item, currentKm, today)
+      const remainingKm = kmUntilDue(item, currentKm)
+      const remainingDays = daysUntilDue(item, today)
+
+      return `
+      <tr>
+        <td>${escapeHtml(label)}</td>
+        <td>${item.last_date ? escapeHtml(formatDate(item.last_date)) : '--'}</td>
+        <td>${item.last_km != null ? escapeHtml(formatKm(item.last_km)) : '--'}</td>
+        <td>${remainingKm != null ? `${remainingKm} km` : '--'}</td>
+        <td>${remainingDays != null ? `${remainingDays} gg` : '--'}</td>
+        <td>${escapeHtml(formatMaintenanceStatus(status))}</td>
+      </tr>`
+    })
+    .join('')
+
+  return `<table>
+    <thead>
+      <tr>
+        <th>Intervento</th>
+        <th>Ultima data</th>
+        <th>Ultimo km</th>
+        <th>Km residui</th>
+        <th>Giorni residui</th>
+        <th>Stato</th>
+      </tr>
+    </thead>
+    <tbody>${rows}</tbody>
+  </table>`
+}
+
+function buildReportPeriod(refuels: Refuel[], trips: Trip[], maintenance: Maintenance[]): string {
+  const dates = [
+    ...refuels.map((item) => item.date),
+    ...trips.map((item) => item.start_time.slice(0, 10)),
+    ...maintenance.map((item) => item.last_date).filter((value): value is string => Boolean(value)),
+  ].sort()
+
+  if (dates.length === 0) {
+    return 'Nessun dato registrato'
+  }
+
+  const from = formatDate(dates[0])
+  const to = formatDate(dates[dates.length - 1])
+  return from === to ? from : `${from} - ${to}`
+}
+
+function formatMaintenanceStatus(status: 'ok' | 'warning' | 'overdue'): string {
+  if (status === 'overdue') {
+    return 'Scaduta'
+  }
+  if (status === 'warning') {
+    return 'In scadenza'
+  }
+  return 'OK'
 }
 
 function escapeHtml(value: string): string {

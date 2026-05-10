@@ -9,5 +9,5 @@ export default function IndexRoute() {
     return <Redirect href="/(tabs)" />
   }
 
-  return <Redirect href={session ? '/(tabs)' : '/(auth)/login'} />
+  return <Redirect href={session ? '/(tabs)' : '/login'} />
 }
