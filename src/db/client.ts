@@ -60,6 +60,10 @@ export async function initDb(): Promise<void> {
     _db = adapter
     _dbMode = 'sqlite'
   } catch (error) {
+    if (!__DEV__) {
+      throw error
+    }
+
     console.error('[db] sqlite unavailable, fallback to memory:', error)
     const memory = createMemoryAdapter()
 

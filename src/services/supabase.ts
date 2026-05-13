@@ -1,5 +1,5 @@
 import { createClient, type EmailOtpType } from '@supabase/supabase-js'
-import AsyncStorage from '@react-native-async-storage/async-storage'
+import { secureSupabaseStorage } from './secureStorage'
 
 const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL
 const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY
@@ -31,7 +31,7 @@ export const PRODUCTION_CONFIG_ERROR_MESSAGE =
 export const supabase = isSupabaseConfigured
   ? createClient(supabaseUrl!, supabaseAnonKey!, {
       auth: {
-        storage: AsyncStorage,
+        storage: secureSupabaseStorage,
         autoRefreshToken: true,
         persistSession: true,
         detectSessionInUrl: false,
@@ -74,11 +74,11 @@ export async function clearSupabaseSession(): Promise<void> {
     console.warn('[supabase] local signOut failed, clearing storage directly:', error)
   }
 
-  await AsyncStorage.multiRemove([
+  await Promise.all([
     supabaseStorageKey,
     `${supabaseStorageKey}-user`,
     `${supabaseStorageKey}-code-verifier`,
-  ])
+  ].map((key) => secureSupabaseStorage.removeItem(key)))
 }
 
 export async function recoverSupabaseSession(error: unknown): Promise<boolean> {
@@ -98,7 +98,7 @@ type AuthRedirectResult = {
 }
 
 export async function handleSupabaseAuthRedirect(url: string): Promise<AuthRedirectResult> {
-  if (!supabase) {
+  if (!supabase || !isTrustedAuthRedirectUrl(url)) {
     return { handled: false, success: false }
   }
 
@@ -159,5 +159,21 @@ function buildSupabaseStorageKey(url: string): string {
     return `sb-${hostPrefix}-auth-token`
   } catch {
     return 'supabase-auth'
+  }
+}
+
+function isTrustedAuthRedirectUrl(url: string): boolean {
+  try {
+    const parsedUrl = new URL(url)
+    const expectedUrl = new URL(AUTH_REDIRECT_URL)
+    const normalizedPath = parsedUrl.pathname.replace(/\/+$/, '').toLowerCase()
+
+    return (
+      parsedUrl.protocol === expectedUrl.protocol &&
+      (parsedUrl.hostname.toLowerCase() === expectedUrl.hostname.toLowerCase() ||
+        normalizedPath === '/login')
+    )
+  } catch {
+    return false
   }
 }

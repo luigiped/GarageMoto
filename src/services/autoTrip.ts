@@ -3,7 +3,13 @@ import * as Location from 'expo-location'
 import * as TaskManager from 'expo-task-manager'
 import { Platform } from 'react-native'
 import { ensureDb, getDb } from '../db/client'
+import {
+  getProtectedJsonFromAsyncStorage,
+  removeProtectedItemFromAsyncStorage,
+  setProtectedJsonInAsyncStorage,
+} from './secureStorage'
 import { supabase } from './supabase'
+import { protectTripForLocalStorage } from './tripProtection'
 import { createId } from '../utils/id'
 import type { NewTrip, RoutePoint, Trip } from '../types/trip'
 import { validateTrip } from './location'
@@ -63,8 +69,7 @@ export async function loadAutoTripEnabled(): Promise<boolean> {
 }
 
 export async function getAutoTripSession(): Promise<AutoTripSession | null> {
-  const raw = await AsyncStorage.getItem(AUTO_TRIP_SESSION_KEY)
-  return raw ? JSON.parse(raw) as AutoTripSession : null
+  return getProtectedJsonFromAsyncStorage<AutoTripSession>(AUTO_TRIP_SESSION_KEY)
 }
 
 export async function requestAutoTripPermissions(): Promise<boolean> {
@@ -94,7 +99,7 @@ export async function syncAutoTripContext(
   context: AutoTripContext | null,
 ): Promise<void> {
   if (!context) {
-    await AsyncStorage.removeItem(AUTO_TRIP_CONTEXT_KEY)
+    await removeProtectedItemFromAsyncStorage(AUTO_TRIP_CONTEXT_KEY)
     return
   }
 
@@ -103,7 +108,7 @@ export async function syncAutoTripContext(
     await finalizeCurrentSession()
   }
 
-  await AsyncStorage.setItem(AUTO_TRIP_CONTEXT_KEY, JSON.stringify(context))
+  await setProtectedJsonInAsyncStorage(AUTO_TRIP_CONTEXT_KEY, context)
 
   if (await loadAutoTripEnabled()) {
     await applyAutoTripState(true, context)
@@ -117,7 +122,7 @@ export async function finalizeCurrentSession(): Promise<void> {
   }
 
   await saveSessionTrip(session)
-  await AsyncStorage.removeItem(AUTO_TRIP_SESSION_KEY)
+  await removeProtectedItemFromAsyncStorage(AUTO_TRIP_SESSION_KEY)
 }
 
 export async function getIsAutoTripTaskActive(): Promise<boolean> {
@@ -137,7 +142,7 @@ async function applyAutoTripState(
     return
   }
 
-  await AsyncStorage.setItem(AUTO_TRIP_CONTEXT_KEY, JSON.stringify(context))
+  await setProtectedJsonInAsyncStorage(AUTO_TRIP_CONTEXT_KEY, context)
 
   const started = await Location.hasStartedLocationUpdatesAsync(AUTO_TRIP_TASK)
   if (started) {
@@ -203,7 +208,7 @@ async function processLocationBatch(
 
     if (point.ts - session.lastMovementTs >= AUTO_STOP_IDLE_MS) {
       await saveSessionTrip(session)
-      await AsyncStorage.removeItem(AUTO_TRIP_SESSION_KEY)
+      await removeProtectedItemFromAsyncStorage(AUTO_TRIP_SESSION_KEY)
       session = null
     }
   }
@@ -250,6 +255,7 @@ async function persistTrip(data: NewTrip): Promise<Trip> {
     created_at: now,
     updated_at: now,
   }
+  const protectedTrip = await protectTripForLocalStorage(trip)
 
   await db.runAsync(
     `INSERT INTO trips
@@ -272,8 +278,8 @@ async function persistTrip(data: NewTrip): Promise<Trip> {
       trip.max_lean_left_deg ?? null,
       trip.max_lean_right_deg ?? null,
       trip.max_braking_g ?? null,
-      trip.route_json,
-      trip.notes ?? null,
+      protectedTrip.route_json,
+      protectedTrip.notes,
       trip.created_at,
       trip.updated_at,
     ],
@@ -303,12 +309,11 @@ async function pushTripToSupabase(trip: Trip): Promise<void> {
 }
 
 async function writeSession(session: AutoTripSession): Promise<void> {
-  await AsyncStorage.setItem(AUTO_TRIP_SESSION_KEY, JSON.stringify(session))
+  await setProtectedJsonInAsyncStorage(AUTO_TRIP_SESSION_KEY, session)
 }
 
 async function readContext(): Promise<AutoTripContext | null> {
-  const raw = await AsyncStorage.getItem(AUTO_TRIP_CONTEXT_KEY)
-  return raw ? JSON.parse(raw) as AutoTripContext : null
+  return getProtectedJsonFromAsyncStorage<AutoTripContext>(AUTO_TRIP_CONTEXT_KEY)
 }
 
 function toRoutePoint(location: Location.LocationObject): RoutePoint {

@@ -1,6 +1,11 @@
 // R1.1 - store viaggi con fallback locale e sync opzionale
 import { create } from 'zustand'
 import { getDb } from '../db/client'
+import {
+  migrateTripProtectionRow,
+  protectTripForLocalStorage,
+  unprotectTripFromLocalStorage,
+} from '../services/tripProtection'
 import { supabase } from '../services/supabase'
 import { enqueueDelete, flushSyncQueue } from '../services/syncQueue'
 import type { Trip, NewTrip } from '../types/trip'
@@ -28,7 +33,14 @@ export const useTripStore = create<TripStore>((set, get) => ({
         'SELECT * FROM trips WHERE vehicle_id=? ORDER BY start_time DESC',
         [vehicleId],
       )
-      set({ trips: rows.map(deserializeTrip), isLoading: false })
+      const trips = await Promise.all(
+        rows.map(async (row) => {
+          const trip = await deserializeTrip(row)
+          await migrateTripProtectionRow(db, row)
+          return trip
+        }),
+      )
+      set({ trips, isLoading: false })
       _syncTrips(vehicleId)
     } catch (e) {
       console.error('[tripStore] load:', e)
@@ -41,6 +53,7 @@ export const useTripStore = create<TripStore>((set, get) => ({
     const trip: Trip = { ...data, id: createId(), created_at: now, updated_at: now }
     try {
       const db = getDb()
+      const protectedTrip = await protectTripForLocalStorage(trip)
       await db.runAsync(
         `INSERT INTO trips
          (id,user_id,vehicle_id,start_time,end_time,distance_km,
@@ -53,7 +66,7 @@ export const useTripStore = create<TripStore>((set, get) => ({
           trip.end_time, trip.distance_km, trip.duration_minutes,
           trip.avg_speed_kmh, trip.max_speed_kmh, trip.max_lean_angle_deg ?? null,
           trip.max_lean_left_deg ?? null, trip.max_lean_right_deg ?? null, trip.max_braking_g ?? null,
-          trip.route_json, trip.notes ?? null, trip.created_at, trip.updated_at,
+          protectedTrip.route_json, protectedTrip.notes, trip.created_at, trip.updated_at,
         ],
       )
       set({ trips: [trip, ...get().trips] })
@@ -127,6 +140,10 @@ async function _syncTrips(vehicleId: string) {
 
   const db = getDb()
   for (const t of data) {
+    const protectedTrip = await protectTripForLocalStorage({
+      route_json: typeof t.route_json === 'string' ? t.route_json : JSON.stringify(t.route_json),
+      notes: t.notes ?? null,
+    })
     await db.runAsync(
       `INSERT OR REPLACE INTO trips
        (id,user_id,vehicle_id,start_time,end_time,distance_km,
@@ -138,8 +155,9 @@ async function _syncTrips(vehicleId: string) {
         t.id, t.user_id, t.vehicle_id, t.start_time, t.end_time,
         t.distance_km, t.duration_minutes, t.avg_speed_kmh, t.max_speed_kmh,
         t.max_lean_angle_deg ?? null, t.max_lean_left_deg ?? null, t.max_lean_right_deg ?? null, t.max_braking_g ?? null,
-        typeof t.route_json === 'string' ? t.route_json : JSON.stringify(t.route_json),
-        t.notes ?? null, t.created_at, t.updated_at,
+        protectedTrip.route_json,
+        protectedTrip.notes,
+        t.created_at, t.updated_at,
       ],
     ).catch(console.error)
   }
@@ -153,13 +171,18 @@ async function _pushPendingTrips(vehicleId: string) {
   )
 
   for (const row of rows) {
-    await _pushTrip(deserializeTrip(row))
+    await _pushTrip(await deserializeTrip(row))
   }
 }
 
 type TripRow = Trip & { sync_pending?: number }
 
-function deserializeTrip(row: TripRow): Trip {
+async function deserializeTrip(row: TripRow): Promise<Trip> {
   const { sync_pending: _syncPending, ...trip } = row
-  return trip
+  const unprotected = await unprotectTripFromLocalStorage(trip)
+  return {
+    ...trip,
+    route_json: unprotected.route_json,
+    notes: unprotected.notes ?? undefined,
+  }
 }

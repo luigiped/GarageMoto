@@ -1,40 +1,49 @@
 import AsyncStorage from '@react-native-async-storage/async-storage'
+import { getSecureString, removeSecureString, setSecureString } from './secureStorage'
 
-const VEHICLE_IMAGES_KEY = 'garagemoto:vehicle-images'
+const LEGACY_VEHICLE_IMAGES_KEY = 'garagemoto:vehicle-images'
 
 type VehicleImageMap = Record<string, string>
 
-async function readVehicleImages(): Promise<VehicleImageMap> {
-  try {
-    const raw = await AsyncStorage.getItem(VEHICLE_IMAGES_KEY)
-    if (!raw) {
-      return {}
-    }
+let legacyMigrationPromise: Promise<void> | null = null
 
-    return JSON.parse(raw) as VehicleImageMap
-  } catch (error) {
-    console.error('[vehicleImageStore] read:', error)
-    return {}
+async function migrateLegacyVehicleImages(): Promise<void> {
+  if (!legacyMigrationPromise) {
+    legacyMigrationPromise = (async () => {
+      const raw = await AsyncStorage.getItem(LEGACY_VEHICLE_IMAGES_KEY)
+      if (!raw) {
+        return
+      }
+
+      const map = JSON.parse(raw) as VehicleImageMap
+      await Promise.all(
+        Object.entries(map).map(([vehicleId, uri]) => setSecureString(buildVehicleImageKey(vehicleId), uri)),
+      )
+      await AsyncStorage.removeItem(LEGACY_VEHICLE_IMAGES_KEY)
+    })().catch((error) => {
+      legacyMigrationPromise = null
+      throw error
+    })
   }
-}
 
-async function writeVehicleImages(map: VehicleImageMap): Promise<void> {
-  await AsyncStorage.setItem(VEHICLE_IMAGES_KEY, JSON.stringify(map))
+  return legacyMigrationPromise
 }
 
 export async function getVehicleImageUri(vehicleId: string): Promise<string | null> {
-  const map = await readVehicleImages()
-  return map[vehicleId] ?? null
+  await migrateLegacyVehicleImages()
+  return getSecureString(buildVehicleImageKey(vehicleId))
 }
 
 export async function setVehicleImageUri(vehicleId: string, uri: string): Promise<void> {
-  const map = await readVehicleImages()
-  map[vehicleId] = uri
-  await writeVehicleImages(map)
+  await migrateLegacyVehicleImages()
+  await setSecureString(buildVehicleImageKey(vehicleId), uri)
 }
 
 export async function removeVehicleImageUri(vehicleId: string): Promise<void> {
-  const map = await readVehicleImages()
-  delete map[vehicleId]
-  await writeVehicleImages(map)
+  await migrateLegacyVehicleImages()
+  await removeSecureString(buildVehicleImageKey(vehicleId))
+}
+
+function buildVehicleImageKey(vehicleId: string): string {
+  return `garagemoto:vehicle-image:${vehicleId}`
 }

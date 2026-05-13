@@ -441,6 +441,10 @@ export default function SettingsScreen() {
           <Text style={styles.infoValue}>{autoTripEnabled ? 'Attivo' : 'Disattivo'}</Text>
         </View>
       </Panel>
+
+      <Text style={styles.copyright}>
+        Copyright © 2026 Luigi Pedace - DigitalSheets_LP. All rights reserved.
+      </Text>
     </AppScreen>
   )
 }
@@ -546,6 +550,14 @@ function createStyles(theme: ReturnType<typeof useTheme>) {
     },
     actionsCol: {
       gap: spacing.sm,
+    },
+    copyright: {
+      color: colors.textMuted,
+      fontSize: font.sm,
+      lineHeight: 20,
+      textAlign: 'center',
+      marginTop: spacing.md,
+      marginBottom: spacing.lg,
     },
   })
 }
