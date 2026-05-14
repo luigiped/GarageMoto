@@ -7,43 +7,25 @@ const SECURE_PREFIX = 'garagemoto:secure:'
 export const secureSupabaseStorage = {
   getItem: async (key: string): Promise<string | null> => {
     const secureKey = toSecureKey(key)
-    try {
-      const secureValue = await SecureStore.getItemAsync(secureKey)
-      if (secureValue != null) {
-        return secureValue
-      }
-    } catch (error) {
-      console.warn('[secureStorage] getItem secure fallback:', error)
-      await SecureStore.deleteItemAsync(secureKey).catch(() => undefined)
+    const secureValue = await SecureStore.getItemAsync(secureKey)
+    if (secureValue != null) {
+      return secureValue
     }
 
     const legacyValue = await AsyncStorage.getItem(key)
     if (legacyValue != null) {
-      try {
-        await SecureStore.setItemAsync(secureKey, legacyValue)
-        await AsyncStorage.removeItem(key)
-      } catch (error) {
-        console.warn('[secureStorage] migrate legacy auth storage skipped:', error)
-      }
+      await SecureStore.setItemAsync(secureKey, legacyValue)
+      await AsyncStorage.removeItem(key)
     }
 
     return legacyValue
   },
   setItem: async (key: string, value: string): Promise<void> => {
-    try {
-      await SecureStore.setItemAsync(toSecureKey(key), value)
-      await AsyncStorage.removeItem(key)
-    } catch (error) {
-      console.warn('[secureStorage] setItem async fallback:', error)
-      await AsyncStorage.setItem(key, value)
-    }
+    await SecureStore.setItemAsync(toSecureKey(key), value)
+    await AsyncStorage.removeItem(key)
   },
   removeItem: async (key: string): Promise<void> => {
-    try {
-      await SecureStore.deleteItemAsync(toSecureKey(key))
-    } catch (error) {
-      console.warn('[secureStorage] removeItem secure fallback:', error)
-    }
+    await SecureStore.deleteItemAsync(toSecureKey(key))
     await AsyncStorage.removeItem(key)
   },
 }

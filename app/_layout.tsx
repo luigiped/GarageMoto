@@ -6,6 +6,7 @@ import { useAuthStore } from '../src/store/authStore'
 import { useThemeStore } from '../src/store/themeStore'
 import { initDb } from '../src/db/client'
 import {
+  clearSupabaseSession,
   isLocalModeEnabled,
   PRODUCTION_CONFIG_ERROR_MESSAGE,
   isSupabaseConfigured,
@@ -34,8 +35,8 @@ export default function RootLayout() {
 
     async function bootstrap() {
       try {
-        await useThemeStore.getState().hydrateTheme()
-        await initDb()
+        await withTimeout(useThemeStore.getState().hydrateTheme(), 4000, 'Theme initialization timed out.')
+        await withTimeout(initDb(), 10000, 'Database initialization timed out.')
       } catch (error) {
         console.error('[root] initDb:', error)
         if (isMounted) {
@@ -52,30 +53,49 @@ export default function RootLayout() {
       }
 
       if (isSupabaseConfigured && supabase) {
-        const { data, error } = await supabase.auth.getSession()
-        if (error) {
-          const recovered = await recoverSupabaseSession(error)
-          if (recovered) {
-            console.warn('[root] stale auth session cleared')
-            useAuthStore.setState({
-              error: null,
-              notice: 'Sessione precedente non valida o scaduta. Accedi di nuovo.',
-            })
-          } else {
-            console.error('[root] getSession:', error)
+        try {
+          const { data, error } = await withTimeout(
+            supabase.auth.getSession(),
+            8000,
+            'Supabase session restore timed out.',
+          )
+
+          if (error) {
+            const recovered = await recoverSupabaseSession(error)
+            if (recovered) {
+              console.warn('[root] stale auth session cleared')
+              useAuthStore.setState({
+                error: null,
+                notice: 'Sessione precedente non valida o scaduta. Accedi di nuovo.',
+              })
+            } else {
+              console.error('[root] getSession:', error)
+            }
           }
+
+          if (!isMounted) {
+            return
+          } else {
+            setSession(data.session)
+          }
+
+          const subscription = supabase.auth.onAuthStateChange((_event, session) => {
+            setSession(session)
+          })
+          unsubscribe = () => subscription.data.subscription.unsubscribe()
+        } catch (error) {
+          console.error('[root] auth bootstrap:', error)
+          await clearSupabaseSession().catch((clearError) => {
+            console.warn('[root] clearSupabaseSession:', clearError)
+          })
+          if (isMounted) {
+            setSession(null)
+          }
+          useAuthStore.setState({
+            error: null,
+            notice: 'Ripristino sessione non riuscito. Accedi di nuovo.',
+          })
         }
-
-        if (!isMounted) {
-          return
-        }
-
-        setSession(data.session)
-
-        const subscription = supabase.auth.onAuthStateChange((_event, session) => {
-          setSession(session)
-        })
-        unsubscribe = () => subscription.data.subscription.unsubscribe()
       } else if (isMounted) {
         setSession(null)
       }
@@ -128,6 +148,23 @@ export default function RootLayout() {
       </Stack>
     </>
   )
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined
+
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timeoutId = setTimeout(() => reject(new Error(message)), timeoutMs)
+      }),
+    ])
+  } finally {
+    if (timeoutId) {
+      clearTimeout(timeoutId)
+    }
+  }
 }
 
 function createStyles(theme: ReturnType<typeof useTheme>) {
