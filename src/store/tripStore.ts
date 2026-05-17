@@ -16,7 +16,7 @@ interface TripStore {
   isLoading: boolean
   error: string | null
   loadTrips: (vehicleId: string) => Promise<void>
-  saveTrip: (data: NewTrip) => Promise<void>
+  saveTrip: (data: NewTrip) => Promise<Trip>
   deleteTrip: (id: string) => Promise<void>
 }
 
@@ -71,9 +71,11 @@ export const useTripStore = create<TripStore>((set, get) => ({
       )
       set({ trips: [trip, ...get().trips] })
       _pushTrip(trip)
+      return trip
     } catch (e) {
       console.error('[tripStore] save:', e)
       set({ error: 'Errore salvataggio viaggio' })
+      throw e
     }
   },
 

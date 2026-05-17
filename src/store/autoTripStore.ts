@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 
 const AUTO_TRIP_UNAVAILABLE_MESSAGE =
-  'Tracking automatico non disponibile in questa build. Usa la development build sul telefono.'
+  'Tracking automatico non disponibile in questa installazione.'
 
 type AutoTripService = typeof import('../services/autoTrip')
 

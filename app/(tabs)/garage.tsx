@@ -116,8 +116,8 @@ export default function GarageScreen() {
       if (!result.canceled) {
         const uri = result.assets[0]?.uri
         if (uri) {
-          await setVehicleImageUri(activeVehicle.id, uri)
-          setActiveVehicleImage(uri)
+          const persistedUri = await setVehicleImageUri(activeVehicle.id, uri)
+          setActiveVehicleImage(persistedUri)
         }
       }
     } catch (error) {

@@ -19,8 +19,8 @@ import { MAINTENANCE_LABELS, type Maintenance } from '../../src/types/maintenanc
 import type { Refuel } from '../../src/types/refuel'
 import type { Trip } from '../../src/types/trip'
 import type { Vehicle } from '../../src/types/vehicle'
-import { averageConsumption, currentMonthSpending, estimatedRange } from '../../src/utils/fuelCalculator'
-import { formatDate, formatEuro } from '../../src/utils/formatters'
+import { averageConsumption, currentMonthSpending, estimatedFuelPct, estimatedRange } from '../../src/utils/fuelCalculator'
+import { formatDate, formatEuro, formatLiters } from '../../src/utils/formatters'
 import { getStatus } from '../../src/utils/maintenanceChecker'
 
 const PERFORMANCE_ROUTE = '/performance' as Href
@@ -101,6 +101,13 @@ export default function DashboardScreen() {
   const avg = averageConsumption(refuels)
   const lastKml = refuels[0]?.km_per_liter ?? null
   const range = estimatedRange(activeVehicle.tank_capacity_l, refuels, currentKm)
+  const lastFullRefuel = refuels.find((item) => item.is_full_tank)
+  const fuelPct = avg != null && range != null
+    ? Math.round(estimatedFuelPct(activeVehicle.tank_capacity_l, range, avg) * 100)
+    : null
+  const estimatedLitersLeft = avg != null && avg > 0 && range != null
+    ? Math.max(0, range / avg)
+    : null
   const monthSpend = currentMonthSpending(refuels)
   const lastRefuel = refuels[0]
   const lastTrip = trips[0]
@@ -115,8 +122,11 @@ export default function DashboardScreen() {
         activeVehicle={activeVehicle}
         avg={avg}
         currentKm={currentKm}
+        estimatedLitersLeft={estimatedLitersLeft}
+        fuelPct={fuelPct}
         isOverdue={isOverdue}
         lastKml={lastKml}
+        lastFullRefuel={lastFullRefuel}
         lastRefuel={lastRefuel}
         lastTrip={lastTrip}
         maintenance={maintenance}
@@ -180,6 +190,33 @@ export default function DashboardScreen() {
         <MetricTile label="Spesa mese" value={formatEuro(monthSpend)} tone="warning" />
       </View>
 
+      <Panel
+        title="Serbatoio stimato"
+        subtitle={lastFullRefuel ? `Basato sull'ultimo pieno del ${formatDate(lastFullRefuel.date)}.` : 'Stima disponibile quando registri almeno due pieni completi.'}
+        tone="info"
+      >
+        {fuelPct != null && estimatedLitersLeft != null && range != null ? (
+          <>
+            <View style={styles.fuelHeroRow}>
+              <View>
+                <Text style={styles.fuelPctValue}>{fuelPct}%</Text>
+                <Text style={styles.fuelPctLabel}>carburante stimato</Text>
+              </View>
+              <StatusPill label={`${Math.round(range)} km residui`} tone="info" />
+            </View>
+            <View style={styles.statRow}>
+              <Stat value={formatLiters(estimatedLitersLeft)} label="litri residui" />
+              <Stat value={avg != null ? `${avg.toFixed(1)} km/l` : '--'} label="media usata" />
+              <Stat value={lastFullRefuel ? formatDate(lastFullRefuel.date) : '--'} label="ultimo pieno" />
+            </View>
+          </>
+        ) : (
+          <Text style={styles.fuelEstimateEmpty}>
+            Registra almeno due pieni completi per mostrare una stima coerente del carburante residuo.
+          </Text>
+        )}
+      </Panel>
+
       {lastRefuel && (
         <Panel title="Ultimo rifornimento" subtitle={formatDate(lastRefuel.date)}>
           <View style={styles.statRow}>
@@ -215,8 +252,11 @@ function GlassDashboard({
   activeVehicle,
   avg,
   currentKm,
+  estimatedLitersLeft,
+  fuelPct,
   isOverdue,
   lastKml,
+  lastFullRefuel,
   lastRefuel,
   lastTrip,
   maintenance,
@@ -234,8 +274,11 @@ function GlassDashboard({
   activeVehicle: Vehicle
   avg: number | null
   currentKm: number
+  estimatedLitersLeft: number | null
+  fuelPct: number | null
   isOverdue: boolean
   lastKml: number | null
+  lastFullRefuel: Refuel | undefined
   lastRefuel: Refuel | undefined
   lastTrip: Trip | undefined
   maintenance: Maintenance[]
@@ -253,7 +296,6 @@ function GlassDashboard({
   const recentTrips = trips.slice(0, 3)
   const monthlyBars = useMemo(() => buildMonthlySpendBars(refuels), [refuels])
   const leanLeaderboard = useMemo(() => buildLeanLeaderboard(trips, theme.colors), [theme.colors, trips])
-  const fuelPct = avg && range ? Math.max(0, Math.min(100, Math.round((range / (activeVehicle.tank_capacity_l * avg)) * 100))) : null
   const serviceLabel = isOverdue ? 'Service urgente' : warning.length > 0 ? 'Service vicino' : 'Moto in ordine'
   const topMaintenance = [...overdue, ...warning, ...maintenance.filter((item) => getStatus(item, currentKm) === 'ok')][0]
 
@@ -334,6 +376,29 @@ function GlassDashboard({
               ]}
             />
           ) : null}
+
+          <GlassInfoCard
+            title="Fuel stimato"
+            meta={lastFullRefuel ? `ultimo pieno ${formatDate(lastFullRefuel.date)}` : 'dati insufficienti'}
+            stats={
+              fuelPct != null && estimatedLitersLeft != null && range != null
+                ? [
+                    { value: `${fuelPct}%`, label: 'residuo' },
+                    { value: `${Math.round(range)} km`, label: 'autonomia' },
+                    { value: formatLiters(estimatedLitersLeft), label: 'litri' },
+                  ]
+                : [
+                    { value: '--', label: 'residuo' },
+                    { value: '--', label: 'autonomia' },
+                    { value: '--', label: 'litri' },
+                  ]
+            }
+            note={
+              fuelPct != null && estimatedLitersLeft != null && range != null
+                ? 'Stima basata su ultimo pieno e media consumi. Utile come riferimento, non come lettura reale della moto.'
+                : 'Completa almeno due pieni completi per ottenere una stima affidabile del carburante residuo.'
+            }
+          />
 
           <GlassInfoCard
             title="Assetto e piega"
@@ -653,6 +718,30 @@ function createStyles(theme: ReturnType<typeof useTheme>) {
   },
   actionStack: {
     gap: spacing.sm,
+  },
+  fuelHeroRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing.sm,
+  },
+  fuelPctValue: {
+    color: colors.textPrimary,
+    fontSize: font.display,
+    fontWeight: '800',
+    letterSpacing: -0.6,
+  },
+  fuelPctLabel: {
+    color: colors.textMuted,
+    fontSize: font.sm,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    marginTop: 4,
+  },
+  fuelEstimateEmpty: {
+    color: colors.textSecondary,
+    fontSize: font.base,
+    lineHeight: 22,
   },
   })
 }

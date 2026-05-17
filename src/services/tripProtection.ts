@@ -7,18 +7,34 @@ type TripLocalRow = Pick<Trip, 'id' | 'route_json' | 'notes'>
 export async function protectTripForLocalStorage(
   trip: Pick<Trip, 'route_json' | 'notes'>,
 ): Promise<{ route_json: string; notes: string | null }> {
-  return {
-    route_json: await encryptLocalPayload(trip.route_json),
-    notes: trip.notes ? await encryptLocalPayload(trip.notes) : null,
+  try {
+    return {
+      route_json: await encryptLocalPayload(trip.route_json),
+      notes: trip.notes ? await encryptLocalPayload(trip.notes) : null,
+    }
+  } catch (error) {
+    console.warn('[tripProtection] encrypt fallback:', error)
+    return {
+      route_json: trip.route_json,
+      notes: trip.notes ?? null,
+    }
   }
 }
 
 export async function unprotectTripFromLocalStorage(
   row: Pick<Trip, 'route_json' | 'notes'>,
 ): Promise<{ route_json: string; notes: string | null }> {
-  return {
-    route_json: await decryptLocalPayload(row.route_json),
-    notes: row.notes ? await decryptLocalPayload(row.notes) : null,
+  try {
+    return {
+      route_json: await decryptLocalPayload(row.route_json),
+      notes: row.notes ? await decryptLocalPayload(row.notes) : null,
+    }
+  } catch (error) {
+    console.warn('[tripProtection] decrypt fallback:', error)
+    return {
+      route_json: row.route_json,
+      notes: row.notes ?? null,
+    }
   }
 }
 

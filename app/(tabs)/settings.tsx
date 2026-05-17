@@ -1,6 +1,6 @@
 // R1.3 - include manutenzione nel report PDF e mantiene il pannello export coerente con i dati reali dell'utente.
 import { useEffect, useState } from 'react'
-import { Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import { Alert, Linking, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { ActionButton } from '../../src/components/ui/ActionButton'
 import { AppScreen } from '../../src/components/ui/AppScreen'
 import { Panel } from '../../src/components/ui/Panel'
@@ -172,7 +172,16 @@ export default function SettingsScreen() {
     }
     const ok = await setAutoTripEnabled(nextValue)
     if (!ok && nextValue) {
-      Alert.alert('Permesso richiesto', 'Per l’avvio automatico serve il GPS anche in background nella development build.')
+      Alert.alert(
+        'Permesso richiesto',
+        Platform.OS === 'ios'
+          ? 'Per l’avvio automatico serve l’accesso alla posizione impostato su "Sempre". Apri Impostazioni > GarageMoto > Posizione e abilita "Sempre".'
+          : 'Per l’avvio automatico serve il permesso GPS anche in background. Apri le impostazioni dell’app e abilitalo.',
+        [
+          { text: 'Annulla', style: 'cancel' },
+          { text: 'Apri impostazioni', onPress: () => { void Linking.openSettings() } },
+        ],
+      )
     }
   }
 

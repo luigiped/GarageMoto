@@ -12,34 +12,35 @@
     ],
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.garagemoto.app"
+      "bundleIdentifier": "com.garagemoto.app",
+      "infoPlist": {
+        "NSLocationAlwaysUsageDescription": "GarageMoto usa la tua posizione per registrare i percorsi in moto anche durante il viaggio.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "GarageMoto usa la tua posizione per registrare i percorsi in moto anche durante il viaggio.",
+        "NSLocationWhenInUseUsageDescription": "GarageMoto usa la tua posizione per registrare i percorsi in moto.",
+        "UIBackgroundModes": [
+          "location"
+        ]
+      }
     },
     "android": {
       "package": "com.garagemoto.app",
+      "permissions": [
+        "android.permission.ACCESS_BACKGROUND_LOCATION",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_LOCATION",
+        "android.permission.POST_NOTIFICATIONS"
+      ],
       "adaptiveIcon": {
         "foregroundImage": "./assets/icon.png",
         "backgroundColor": "#050505"
       }
     },
+    "notification": {
+      "color": "#E8611A"
+    },
     "plugins": [
       "expo-router",
-      [
-        "expo-location",
-        {
-          "locationAlwaysAndWhenInUsePermission": "GarageMoto usa il GPS per registrare i tuoi percorsi.",
-          "locationWhenInUsePermission": "GarageMoto usa il GPS per registrare i tuoi percorsi.",
-          "isIosBackgroundLocationEnabled": true,
-          "isAndroidBackgroundLocationEnabled": true,
-          "isAndroidForegroundServiceEnabled": true
-        }
-      ],
-      "expo-dev-client",
-      [
-        "expo-notifications",
-        {
-          "color": "#E8611A"
-        }
-      ]
+      "./plugins/withGoogleMapsEnv"
     ],
     "experiments": {
       "typedRoutes": true

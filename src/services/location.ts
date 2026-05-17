@@ -5,8 +5,14 @@ import type { RoutePoint } from '../types/trip'
 const MIN_SPEED_KMH = 2       // ignora punti sotto 2 km/h (moto ferma)
 const MIN_DISTANCE_M = 500    // scarta viaggio < 500m
 const MIN_DURATION_S = 60     // scarta viaggio < 1 minuto
+const MANUAL_MIN_DISTANCE_M = 50
+const MANUAL_MIN_DURATION_S = 10
 
 export type LocationCallback = (point: RoutePoint) => void
+export type TripValidationOptions = {
+  minDistanceM?: number
+  minDurationS?: number
+}
 
 let _subscription: Location.LocationSubscription | null = null
 
@@ -67,18 +73,30 @@ export function validateTrip(
   points: RoutePoint[],
   startTs: number,
   endTs: number,
+  options: TripValidationOptions = {},
 ): { distanceKm: number; durationMinutes: number } | null {
+  if (points.length < 2) {
+    return null
+  }
+
   const distanceKm = calcDistanceKm(points)
   const durationS = (endTs - startTs) / 1000
+  const minDistanceM = options.minDistanceM ?? MIN_DISTANCE_M
+  const minDurationS = options.minDurationS ?? MIN_DURATION_S
 
-  if (distanceKm * 1000 < MIN_DISTANCE_M) return null
-  if (durationS < MIN_DURATION_S) return null
+  if (distanceKm * 1000 < minDistanceM) return null
+  if (durationS < minDurationS) return null
 
   return {
     distanceKm,
     durationMinutes: Math.round(durationS / 60),
   }
 }
+
+export const MANUAL_TRIP_VALIDATION = {
+  minDistanceM: MANUAL_MIN_DISTANCE_M,
+  minDurationS: MANUAL_MIN_DURATION_S,
+} as const
 
 // Haversine formula per distanza tra due coordinate
 function _haversineKm(a: RoutePoint, b: RoutePoint): number {

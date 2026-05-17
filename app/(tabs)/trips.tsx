@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import Constants from 'expo-constants'
-import { Alert, Platform, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native'
+import { Alert, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native'
 import MapView, { Polyline, PROVIDER_DEFAULT } from 'react-native-maps'
 import { ActionButton } from '../../src/components/ui/ActionButton'
 import { AppScreen } from '../../src/components/ui/AppScreen'
@@ -25,19 +24,9 @@ import {
   updateLeanAngleSummary,
   type LeanAngleSummary,
 } from '../../src/services/leanAngleService'
-import { requestLocationPermission, startTracking, stopTracking, validateTrip } from '../../src/services/location'
+import { MANUAL_TRIP_VALIDATION, requestLocationPermission, startTracking, stopTracking, validateTrip } from '../../src/services/location'
 
 type Screen = 'list' | 'recording' | 'detail'
-
-type ExpoAndroidMapsConfig = {
-  android?: {
-    config?: {
-      googleMaps?: {
-        apiKey?: string
-      }
-    }
-  }
-}
 
 export default function TripsScreen() {
   const theme = useTheme()
@@ -65,8 +54,6 @@ export default function TripsScreen() {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const { width } = useWindowDimensions()
   const mapHeight = Math.round(width * 0.68)
-  const expoConfig = Constants.expoConfig as ExpoAndroidMapsConfig | null
-  const canRenderNativeMap = Platform.OS !== 'android' || Boolean(expoConfig?.android?.config?.googleMaps?.apiKey)
 
   useEffect(() => {
     if (activeVehicle?.id) {
@@ -160,31 +147,38 @@ export default function TripsScreen() {
       return
     }
 
-    const validated = validateTrip(points, startTs, endTs)
+    const validated = validateTrip(points, startTs, endTs, MANUAL_TRIP_VALIDATION)
     if (!validated) {
-      Alert.alert('Viaggio scartato', 'Il viaggio era troppo breve (< 500m o < 1 min).')
+      Alert.alert(
+        'Viaggio non salvato',
+        'Il viaggio non ha raccolto abbastanza dati GPS. Per il salvataggio manuale servono almeno circa 50 metri o 10 secondi di movimento reale.',
+      )
       return
     }
 
     const avgSpeed = points.length > 0 ? points.reduce((sum, point) => sum + point.speedKmh, 0) / points.length : 0
     const maxBrakingG = computeMaxBrakingG(points)
-
-    await saveTrip({
-      user_id: user.id,
-      vehicle_id: activeVehicle.id,
-      start_time: new Date(startTs).toISOString(),
-      end_time: new Date(endTs).toISOString(),
-      distance_km: validated.distanceKm,
-      duration_minutes: validated.durationMinutes,
-      avg_speed_kmh: Math.round(avgSpeed * 10) / 10,
-      max_speed_kmh: Math.round(maxSpeed * 10) / 10,
-      max_lean_angle_deg: leanSummary.maxLeanAngleDeg || null,
-      max_lean_left_deg: leanSummary.maxLeanLeftDeg || null,
-      max_lean_right_deg: leanSummary.maxLeanRightDeg || null,
-      max_braking_g: maxBrakingG,
-      route_json: JSON.stringify(points),
-    })
-    Alert.alert('Viaggio salvato', `${validated.distanceKm.toFixed(1)} km`)
+    try {
+      await saveTrip({
+        user_id: user.id,
+        vehicle_id: activeVehicle.id,
+        start_time: new Date(startTs).toISOString(),
+        end_time: new Date(endTs).toISOString(),
+        distance_km: validated.distanceKm,
+        duration_minutes: validated.durationMinutes,
+        avg_speed_kmh: Math.round(avgSpeed * 10) / 10,
+        max_speed_kmh: Math.round(maxSpeed * 10) / 10,
+        max_lean_angle_deg: leanSummary.maxLeanAngleDeg || null,
+        max_lean_left_deg: leanSummary.maxLeanLeftDeg || null,
+        max_lean_right_deg: leanSummary.maxLeanRightDeg || null,
+        max_braking_g: maxBrakingG,
+        route_json: JSON.stringify(points),
+      })
+      Alert.alert('Viaggio salvato', `${validated.distanceKm.toFixed(1)} km`)
+    } catch (error) {
+      console.error('[trips] saveTrip:', error)
+      Alert.alert('Errore salvataggio', 'Il viaggio e stato registrato ma non sono riuscito a salvarlo sul dispositivo.')
+    }
   }
 
   function handleDeleteTrip(id: string) {
@@ -214,7 +208,7 @@ export default function TripsScreen() {
     if (!available) {
       Alert.alert(
         'Sensore non disponibile',
-        'Questa build non espone correttamente l’accelerometro. Se hai appena aggiunto i sensori, rigenera la development build prima di riprovare.',
+        'Questa installazione non espone correttamente l’accelerometro. Verifica i permessi sensori e riprova.',
       )
       return
     }
@@ -243,7 +237,7 @@ export default function TripsScreen() {
       console.error('[trips] calibrate lean angle:', error)
       Alert.alert(
         'Calibrazione non riuscita',
-        'Non sono riuscito a leggere campioni validi dall’accelerometro. Controlla la development build e riprova con il telefono fermo e verticale.',
+        'Non sono riuscito a leggere campioni validi dall’accelerometro. Riprova con il telefono fermo e verticale.',
       )
     } finally {
       setIsCalibratingLean(false)
@@ -263,20 +257,16 @@ export default function TripsScreen() {
           <Text style={styles.liveTimer}>{formatElapsed(elapsed)}</Text>
           <ActionButton label="Stop" variant="danger" compact onPress={() => { void handleStop() }} />
         </View>
-        {canRenderNativeMap ? (
-          <MapView
-            ref={mapRef}
-            style={{ width, height: mapHeight }}
-            provider={PROVIDER_DEFAULT}
-            initialRegion={{ latitude: 41.9, longitude: 12.5, latitudeDelta: 0.05, longitudeDelta: 0.05 }}
-            showsUserLocation
-            followsUserLocation
-          >
-            {polyCoords.length > 1 ? <Polyline coordinates={polyCoords} strokeColor={colors.primary} strokeWidth={4} /> : null}
-          </MapView>
-        ) : (
-          <MapFallback height={mapHeight} />
-        )}
+        <MapView
+          ref={mapRef}
+          style={{ width, height: mapHeight }}
+          provider={PROVIDER_DEFAULT}
+          initialRegion={{ latitude: 41.9, longitude: 12.5, latitudeDelta: 0.05, longitudeDelta: 0.05 }}
+          showsUserLocation
+          followsUserLocation
+        >
+          {polyCoords.length > 1 ? <Polyline coordinates={polyCoords} strokeColor={colors.primary} strokeWidth={4} /> : null}
+        </MapView>
         <View style={styles.liveStats}>
           <StatCell value={`${distKm.toFixed(1)} km`} label="distanza" />
           <StatCell value={`${currentSpeed} km/h`} label="velocita" />
@@ -309,19 +299,15 @@ export default function TripsScreen() {
           <Text style={styles.detailTitle}>{formatDate(trip.start_time.slice(0, 10))}</Text>
           <View style={{ width: 56 }} />
         </View>
-        {canRenderNativeMap ? (
-          <MapView
-            style={{ width, height: mapHeight }}
-            provider={PROVIDER_DEFAULT}
-            initialRegion={center
-              ? { latitude: center.lat, longitude: center.lng, latitudeDelta: 0.05, longitudeDelta: 0.05 }
-              : { latitude: 41.9, longitude: 12.5, latitudeDelta: 0.1, longitudeDelta: 0.1 }}
-          >
-            {polyCoords.length > 1 ? <Polyline coordinates={polyCoords} strokeColor={colors.primary} strokeWidth={4} /> : null}
-          </MapView>
-        ) : (
-          <MapFallback height={mapHeight} />
-        )}
+        <MapView
+          style={{ width, height: mapHeight }}
+          provider={PROVIDER_DEFAULT}
+          initialRegion={center
+            ? { latitude: center.lat, longitude: center.lng, latitudeDelta: 0.05, longitudeDelta: 0.05 }
+            : { latitude: 41.9, longitude: 12.5, latitudeDelta: 0.1, longitudeDelta: 0.1 }}
+        >
+          {polyCoords.length > 1 ? <Polyline coordinates={polyCoords} strokeColor={colors.primary} strokeWidth={4} /> : null}
+        </MapView>
         <AppScreen>
           <Panel title="Dati viaggio" subtitle="Distanza, durata e velocita del percorso registrato." tone="info">
             <View style={styles.tripStatsRow}>
@@ -443,7 +429,7 @@ export default function TripsScreen() {
               />
               <Text style={styles.leanStatusText}>
                 {leanAvailable === false
-                  ? 'Se il sensore manca in questa build, rigenera la development build prima di riprovare.'
+                  ? 'Il sensore non risulta disponibile in questa installazione.'
                   : leanCalibrated
                     ? 'I prossimi viaggi manuali salveranno l’angolo massimo di piega.'
                     : 'Calibra una volta con telefono verticale e moto ferma.'}
@@ -496,21 +482,6 @@ function StatCell({ value, label }: { value: string; label: string }) {
     <View style={styles.statCell}>
       <Text style={styles.statValue}>{value}</Text>
       <Text style={styles.statLabel}>{label}</Text>
-    </View>
-  )
-}
-
-function MapFallback({ height }: { height: number }) {
-  const styles = createStyles(useTheme())
-
-  return (
-    <View style={[styles.mapFallback, { height }]}>
-      <Text style={styles.mapFallbackIcon}>🗺️</Text>
-      <Text style={styles.mapFallbackTitle}>Mappa disattivata su Android</Text>
-      <Text style={styles.mapFallbackText}>
-        Il viaggio continua a registrare percorso e statistiche. La mappa nativa Google richiede una API key dedicata; con il vincolo
-        di provider gratuiti questa build mostra solo il riepilogo testuale.
-      </Text>
     </View>
   )
 }

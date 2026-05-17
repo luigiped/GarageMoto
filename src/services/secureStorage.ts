@@ -66,19 +66,29 @@ export async function getProtectedJsonFromAsyncStorage<T>(key: string): Promise<
     return null
   }
 
-  const decrypted = await decryptLocalPayload(raw)
-  if (decrypted !== raw) {
-    return JSON.parse(decrypted) as T
-  }
+  try {
+    const decrypted = await decryptLocalPayload(raw)
+    if (decrypted !== raw) {
+      return JSON.parse(decrypted) as T
+    }
 
-  await setProtectedJsonInAsyncStorage(key, JSON.parse(raw) as T)
-  return JSON.parse(raw) as T
+    await setProtectedJsonInAsyncStorage(key, JSON.parse(raw) as T)
+    return JSON.parse(raw) as T
+  } catch (error) {
+    console.warn('[secureStorage] getProtectedJson fallback:', error)
+    return JSON.parse(raw) as T
+  }
 }
 
 export async function setProtectedJsonInAsyncStorage<T>(key: string, value: T): Promise<void> {
   const serialized = JSON.stringify(value)
-  const encrypted = await encryptLocalPayload(serialized)
-  await AsyncStorage.setItem(key, encrypted)
+  try {
+    const encrypted = await encryptLocalPayload(serialized)
+    await AsyncStorage.setItem(key, encrypted)
+  } catch (error) {
+    console.warn('[secureStorage] setProtectedJson fallback:', error)
+    await AsyncStorage.setItem(key, serialized)
+  }
 }
 
 export async function removeProtectedItemFromAsyncStorage(key: string): Promise<void> {
