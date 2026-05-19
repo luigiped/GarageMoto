@@ -24,6 +24,7 @@ const AUTO_TRIP_TASK = 'garagemoto-auto-trip-task'
 const START_SPEED_KMH = 8
 const MIN_MOVING_SPEED_KMH = 2
 const AUTO_STOP_IDLE_MS = 3 * 60 * 1000
+const MIN_START_MOVEMENT_M = 8
 
 type AutoTripContext = {
   userId: string
@@ -41,6 +42,8 @@ type AutoTripSession = {
 type LocationTaskPayload = {
   locations?: Location.LocationObject[]
 }
+
+let _lastObservedPoint: RoutePoint | null = null
 
 if (!TaskManager.isTaskDefined(AUTO_TRIP_TASK)) {
   TaskManager.defineTask(AUTO_TRIP_TASK, async ({ data, error }) => {
@@ -181,10 +184,12 @@ async function processLocationBatch(
   let session = await getAutoTripSession()
 
   for (const location of locations) {
-    const point = toRoutePoint(location)
+    const point = toRoutePoint(location, _lastObservedPoint)
+    const movedSinceLastM = _lastObservedPoint ? distanceMeters(_lastObservedPoint, point) : 0
+    _lastObservedPoint = point
 
     if (!session) {
-      if (point.speedKmh >= START_SPEED_KMH) {
+      if (point.speedKmh >= START_SPEED_KMH || movedSinceLastM >= MIN_START_MOVEMENT_M) {
         session = {
           context,
           startTs: point.ts,
@@ -319,11 +324,56 @@ async function readContext(): Promise<AutoTripContext | null> {
   return getProtectedJsonFromAsyncStorage<AutoTripContext>(AUTO_TRIP_CONTEXT_KEY)
 }
 
-function toRoutePoint(location: Location.LocationObject): RoutePoint {
+function toRoutePoint(
+  location: Location.LocationObject,
+  previousPoint: RoutePoint | null,
+): RoutePoint {
   return {
     lat: location.coords.latitude,
     lng: location.coords.longitude,
     ts: location.timestamp,
-    speedKmh: Math.max(0, (location.coords.speed ?? 0) * 3.6),
+    speedKmh: resolveSpeedKmh(location, previousPoint),
   }
+}
+
+function resolveSpeedKmh(
+  location: Location.LocationObject,
+  previousPoint: RoutePoint | null,
+): number {
+  const speedMs = location.coords.speed
+  if (typeof speedMs === 'number' && Number.isFinite(speedMs) && speedMs > 0) {
+    return speedMs * 3.6
+  }
+
+  if (!previousPoint) {
+    return 0
+  }
+
+  const nextPoint: RoutePoint = {
+    lat: location.coords.latitude,
+    lng: location.coords.longitude,
+    ts: location.timestamp,
+    speedKmh: 0,
+  }
+  const deltaMs = nextPoint.ts - previousPoint.ts
+  if (deltaMs <= 0) {
+    return 0
+  }
+
+  const distanceKm = distanceMeters(previousPoint, nextPoint) / 1000
+  return distanceKm / (deltaMs / 3600000)
+}
+
+function distanceMeters(a: RoutePoint, b: RoutePoint): number {
+  const R = 6371000
+  const dLat = toRad(b.lat - a.lat)
+  const dLng = toRad(b.lng - a.lng)
+  const x =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2
+  return R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x))
+}
+
+function toRad(deg: number): number {
+  return (deg * Math.PI) / 180
 }

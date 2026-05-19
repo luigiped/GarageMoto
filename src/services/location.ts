@@ -2,7 +2,8 @@
 import * as Location from 'expo-location'
 import type { RoutePoint } from '../types/trip'
 
-const MIN_SPEED_KMH = 2       // ignora punti sotto 2 km/h (moto ferma)
+const MIN_SPEED_KMH = 2
+const MIN_MOVEMENT_M = 5
 const MIN_DISTANCE_M = 500    // scarta viaggio < 500m
 const MIN_DURATION_S = 60     // scarta viaggio < 1 minuto
 const MANUAL_MIN_DISTANCE_M = 50
@@ -15,6 +16,8 @@ export type TripValidationOptions = {
 }
 
 let _subscription: Location.LocationSubscription | null = null
+let _lastObservedPoint: RoutePoint | null = null
+let _lastAcceptedPoint: RoutePoint | null = null
 
 export async function requestLocationPermission(): Promise<boolean> {
   const servicesEnabled = await Location.hasServicesEnabledAsync()
@@ -29,6 +32,9 @@ export async function requestLocationPermission(): Promise<boolean> {
 export async function startTracking(onPoint: LocationCallback): Promise<void> {
   if (_subscription) return
 
+  _lastObservedPoint = null
+  _lastAcceptedPoint = null
+
   _subscription = await Location.watchPositionAsync(
     {
       accuracy: Location.Accuracy.High,
@@ -36,18 +42,26 @@ export async function startTracking(onPoint: LocationCallback): Promise<void> {
       timeInterval: 5000,     // o ogni 5 secondi
     },
     (loc) => {
-      const speedMs = loc.coords.speed ?? 0
-      const speedKmh = speedMs * 3.6
-
-      // Ignora punti sotto soglia velocità (GPS noise da fermo)
-      if (speedKmh < MIN_SPEED_KMH) return
-
       const point: RoutePoint = {
         lat: loc.coords.latitude,
         lng: loc.coords.longitude,
         ts: loc.timestamp,
-        speedKmh,
+        speedKmh: resolveSpeedKmh(loc, _lastObservedPoint),
       }
+
+      const movedSinceAcceptedM = _lastAcceptedPoint
+        ? _haversineKm(_lastAcceptedPoint, point) * 1000
+        : Infinity
+
+      _lastObservedPoint = point
+
+      // Se il provider GPS non riporta speed in moto, accetta comunque
+      // punti con movimento reale tra coordinate.
+      if (point.speedKmh < MIN_SPEED_KMH && movedSinceAcceptedM < MIN_MOVEMENT_M) {
+        return
+      }
+
+      _lastAcceptedPoint = point
       onPoint(point)
     },
   )
@@ -56,6 +70,8 @@ export async function startTracking(onPoint: LocationCallback): Promise<void> {
 export function stopTracking(): void {
   _subscription?.remove()
   _subscription = null
+  _lastObservedPoint = null
+  _lastAcceptedPoint = null
 }
 
 /** Calcola distanza totale in km da array di RoutePoint. */
@@ -111,4 +127,33 @@ function _haversineKm(a: RoutePoint, b: RoutePoint): number {
 
 function _rad(deg: number): number {
   return (deg * Math.PI) / 180
+}
+
+function resolveSpeedKmh(
+  loc: Location.LocationObject,
+  previousPoint: RoutePoint | null,
+): number {
+  const speedMs = loc.coords.speed
+  if (typeof speedMs === 'number' && Number.isFinite(speedMs) && speedMs > 0) {
+    return speedMs * 3.6
+  }
+
+  if (!previousPoint) {
+    return 0
+  }
+
+  const deltaMs = loc.timestamp - previousPoint.ts
+  if (deltaMs <= 0) {
+    return 0
+  }
+
+  const nextPoint: RoutePoint = {
+    lat: loc.coords.latitude,
+    lng: loc.coords.longitude,
+    ts: loc.timestamp,
+    speedKmh: 0,
+  }
+  const distanceKm = _haversineKm(previousPoint, nextPoint)
+
+  return (distanceKm / (deltaMs / 3600000))
 }
