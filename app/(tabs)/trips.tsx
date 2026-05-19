@@ -568,9 +568,7 @@ function simpleDistKm(a: RoutePoint, b: RoutePoint): number {
 }
 
 function hasNativeMapConfig(): boolean {
-  const publicEnvKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_ANDROID_API_KEY
-  const expoConfigKey = Constants.expoConfig?.android?.config?.googleMaps?.apiKey
-  return Boolean(publicEnvKey || expoConfigKey)
+  return Boolean(Constants.expoConfig?.extra?.googleMapsConfigured)
 }
 
 function createStyles(theme: ReturnType<typeof useTheme>) {

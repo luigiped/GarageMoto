@@ -1,0 +1,66 @@
+const googleMapsAndroidApiKey =
+  process.env.GOOGLE_MAPS_ANDROID_API_KEY ||
+  process.env.EXPO_PUBLIC_GOOGLE_MAPS_ANDROID_API_KEY
+
+export default {
+  expo: {
+    name: 'GarageMoto',
+    slug: 'garagemoto',
+    version: '1.3.0',
+    orientation: 'portrait',
+    scheme: 'garagemoto',
+    icon: './assets/icon.png',
+    userInterfaceStyle: 'automatic',
+    assetBundlePatterns: [
+      '**/*',
+    ],
+    ios: {
+      supportsTablet: false,
+      bundleIdentifier: 'com.garagemoto.app',
+      infoPlist: {
+        NSLocationAlwaysUsageDescription: 'GarageMoto usa la tua posizione per registrare i percorsi in moto anche durante il viaggio.',
+        NSLocationAlwaysAndWhenInUseUsageDescription: 'GarageMoto usa la tua posizione per registrare i percorsi in moto anche durante il viaggio.',
+        NSLocationWhenInUseUsageDescription: 'GarageMoto usa la tua posizione per registrare i percorsi in moto.',
+        UIBackgroundModes: [
+          'location',
+        ],
+      },
+    },
+    android: {
+      package: 'com.garagemoto.app',
+      permissions: [
+        'android.permission.ACCESS_BACKGROUND_LOCATION',
+        'android.permission.FOREGROUND_SERVICE',
+        'android.permission.FOREGROUND_SERVICE_LOCATION',
+        'android.permission.POST_NOTIFICATIONS',
+      ],
+      adaptiveIcon: {
+        foregroundImage: './assets/icon.png',
+        backgroundColor: '#050505',
+      },
+      config: googleMapsAndroidApiKey
+        ? {
+            googleMaps: {
+              apiKey: googleMapsAndroidApiKey,
+            },
+          }
+        : undefined,
+    },
+    notification: {
+      color: '#E8611A',
+    },
+    plugins: [
+      'expo-router',
+    ],
+    experiments: {
+      typedRoutes: true,
+    },
+    extra: {
+      router: {},
+      googleMapsConfigured: Boolean(googleMapsAndroidApiKey),
+      eas: {
+        projectId: '28663b14-5e24-4802-8f04-58eba5cce1d1',
+      },
+    },
+  },
+}
