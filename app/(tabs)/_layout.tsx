@@ -1,4 +1,3 @@
-// R1.1 - aggiunti tab Viaggi e Statistiche
 import { useEffect } from 'react'
 import { Redirect, Tabs } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
@@ -68,12 +67,12 @@ export default function TabsLayout() {
         tabBarItemStyle: { borderRadius: 18, marginHorizontal: 2 },
       }}
     >
-      <Tabs.Screen name="index"       options={{ title: 'Home',         tabBarIcon: ({ focused }) => icon('home', focused, colors) }} />
-      <Tabs.Screen name="garage"      options={{ title: 'Garage',       tabBarIcon: ({ focused }) => icon('car-sport', focused, colors) }} />
-      <Tabs.Screen name="refuels"     options={{ title: 'Carburante',   tabBarIcon: ({ focused }) => icon('water', focused, colors) }} />
-      <Tabs.Screen name="trips"       options={{ title: 'Viaggi',       tabBarIcon: ({ focused }) => icon('map', focused, colors) }} />
+      <Tabs.Screen name="index" options={{ title: 'Home', tabBarIcon: ({ focused }) => icon('home', focused, colors) }} />
+      <Tabs.Screen name="garage" options={{ title: 'Garage', tabBarIcon: ({ focused }) => icon('car-sport', focused, colors) }} />
+      <Tabs.Screen name="refuels" options={{ title: 'Carburante', tabBarIcon: ({ focused }) => icon('water', focused, colors) }} />
+      <Tabs.Screen name="trips" options={{ title: 'Viaggi', tabBarIcon: ({ focused }) => icon('map', focused, colors) }} />
       <Tabs.Screen name="maintenance" options={{ title: 'Manutenzione', tabBarIcon: ({ focused }) => icon('construct', focused, colors) }} />
-      <Tabs.Screen name="settings"    options={{ title: 'Impostazioni', tabBarIcon: ({ focused }) => icon('settings', focused, colors) }} />
+      <Tabs.Screen name="settings" options={{ title: 'Impostazioni', tabBarIcon: ({ focused }) => icon('settings', focused, colors) }} />
     </Tabs>
   )
 }

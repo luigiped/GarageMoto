@@ -29,7 +29,6 @@ type GlassViewMode = 'overview' | 'costs' | 'rides'
 export default function DashboardScreen() {
   const theme = useTheme()
   const styles = createStyles(theme)
-  const glassStyles = createGlassStyles(theme)
   const { colors, designPreset } = theme
   const { user } = useAuthStore()
   const { activeVehicle, loadVehicles } = useVehicleStore()
@@ -54,6 +53,16 @@ export default function DashboardScreen() {
     }
   }, [activeVehicle?.id])
 
+  const reloadVehicleData = useCallback(() => {
+    if (!activeVehicle?.id) {
+      return
+    }
+
+    void loadRefuels(activeVehicle.id)
+    void loadMaintenance(activeVehicle.id)
+    void loadTrips(activeVehicle.id)
+  }, [activeVehicle?.id, loadMaintenance, loadRefuels, loadTrips])
+
   useEffect(() => {
     if (user?.id) {
       void loadVehicles(user.id)
@@ -61,13 +70,8 @@ export default function DashboardScreen() {
   }, [loadVehicles, user?.id])
 
   useEffect(() => {
-    if (!activeVehicle?.id) {
-      return
-    }
-    void loadRefuels(activeVehicle.id)
-    void loadMaintenance(activeVehicle.id)
-    void loadTrips(activeVehicle.id)
-  }, [activeVehicle?.id, loadMaintenance, loadRefuels, loadTrips])
+    reloadVehicleData()
+  }, [reloadVehicleData])
 
   useEffect(() => {
     void loadVehicleImage()
@@ -75,8 +79,9 @@ export default function DashboardScreen() {
 
   useFocusEffect(
     useCallback(() => {
+      reloadVehicleData()
       void loadVehicleImage()
-    }, [loadVehicleImage]),
+    }, [loadVehicleImage, reloadVehicleData]),
   )
 
   if (!activeVehicle) {
@@ -628,121 +633,121 @@ function createStyles(theme: ReturnType<typeof useTheme>) {
   const { colors, font, radius, spacing } = theme
 
   return StyleSheet.create({
-  emptyWrap: {
-    padding: spacing.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.xxl,
-    backgroundColor: colors.surfaceDk,
-  },
-  emptyIcon: {
-    fontSize: 56,
-    marginBottom: spacing.md,
-  },
-  emptyTitle: {
-    color: colors.textPrimary,
-    fontSize: font.xl,
-    fontWeight: '800',
-    marginBottom: spacing.sm,
-  },
-  emptyText: {
-    color: colors.textSecondary,
-    fontSize: font.base,
-    lineHeight: 22,
-    marginBottom: spacing.lg,
-  },
-  heroRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  heroLabel: {
-    color: colors.textMuted,
-    fontSize: font.sm,
-    letterSpacing: 1.1,
-    textTransform: 'uppercase',
-    marginBottom: 6,
-  },
-  heroValue: {
-    color: colors.textPrimary,
-    fontSize: font.xxxl,
-    fontWeight: '800',
-  },
-  alertBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: colors.panelRaised,
-    borderRadius: radius.xl,
-    borderWidth: 1,
-    padding: spacing.md,
-    marginBottom: spacing.md,
-  },
-  alertIcon: {
-    marginRight: spacing.sm,
-    fontSize: font.base,
-  },
-  alertText: {
-    flex: 1,
-    fontSize: font.sm,
-    fontWeight: '700',
-  },
-  arrow: {
-    color: colors.textMuted,
-    fontSize: font.lg,
-  },
-  metricGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.sm,
-    marginBottom: spacing.md,
-  },
-  statRow: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-  },
-  statCell: {
-    flex: 1,
-    backgroundColor: colors.surfaceDk,
-    borderRadius: radius.lg,
-    padding: spacing.sm + 4,
-  },
-  statValue: {
-    color: colors.textPrimary,
-    fontSize: font.base,
-    fontWeight: '700',
-  },
-  statLabel: {
-    color: colors.textMuted,
-    fontSize: font.sm,
-    marginTop: 4,
-  },
-  actionStack: {
-    gap: spacing.sm,
-  },
-  fuelHeroRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: spacing.sm,
-  },
-  fuelPctValue: {
-    color: colors.textPrimary,
-    fontSize: font.display,
-    fontWeight: '800',
-    letterSpacing: -0.6,
-  },
-  fuelPctLabel: {
-    color: colors.textMuted,
-    fontSize: font.sm,
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-    marginTop: 4,
-  },
-  fuelEstimateEmpty: {
-    color: colors.textSecondary,
-    fontSize: font.base,
-    lineHeight: 22,
-  },
+    emptyWrap: {
+      padding: spacing.lg,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radius.xxl,
+      backgroundColor: colors.surfaceDk,
+    },
+    emptyIcon: {
+      fontSize: 56,
+      marginBottom: spacing.md,
+    },
+    emptyTitle: {
+      color: colors.textPrimary,
+      fontSize: font.xl,
+      fontWeight: '800',
+      marginBottom: spacing.sm,
+    },
+    emptyText: {
+      color: colors.textSecondary,
+      fontSize: font.base,
+      lineHeight: 22,
+      marginBottom: spacing.lg,
+    },
+    heroRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+    },
+    heroLabel: {
+      color: colors.textMuted,
+      fontSize: font.sm,
+      letterSpacing: 1.1,
+      textTransform: 'uppercase',
+      marginBottom: 6,
+    },
+    heroValue: {
+      color: colors.textPrimary,
+      fontSize: font.xxxl,
+      fontWeight: '800',
+    },
+    alertBanner: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: colors.panelRaised,
+      borderRadius: radius.xl,
+      borderWidth: 1,
+      padding: spacing.md,
+      marginBottom: spacing.md,
+    },
+    alertIcon: {
+      marginRight: spacing.sm,
+      fontSize: font.base,
+    },
+    alertText: {
+      flex: 1,
+      fontSize: font.sm,
+      fontWeight: '700',
+    },
+    arrow: {
+      color: colors.textMuted,
+      fontSize: font.lg,
+    },
+    metricGrid: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: spacing.sm,
+      marginBottom: spacing.md,
+    },
+    statRow: {
+      flexDirection: 'row',
+      gap: spacing.sm,
+    },
+    statCell: {
+      flex: 1,
+      backgroundColor: colors.surfaceDk,
+      borderRadius: radius.lg,
+      padding: spacing.sm + 4,
+    },
+    statValue: {
+      color: colors.textPrimary,
+      fontSize: font.base,
+      fontWeight: '700',
+    },
+    statLabel: {
+      color: colors.textMuted,
+      fontSize: font.sm,
+      marginTop: 4,
+    },
+    actionStack: {
+      gap: spacing.sm,
+    },
+    fuelHeroRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: spacing.sm,
+    },
+    fuelPctValue: {
+      color: colors.textPrimary,
+      fontSize: font.display,
+      fontWeight: '800',
+      letterSpacing: -0.6,
+    },
+    fuelPctLabel: {
+      color: colors.textMuted,
+      fontSize: font.sm,
+      textTransform: 'uppercase',
+      letterSpacing: 1,
+      marginTop: 4,
+    },
+    fuelEstimateEmpty: {
+      color: colors.textSecondary,
+      fontSize: font.base,
+      lineHeight: 22,
+    },
   })
 }
 
@@ -750,346 +755,346 @@ function createGlassStyles(theme: ReturnType<typeof useTheme>) {
   const { colors, font, radius, spacing } = theme
 
   return StyleSheet.create({
-  headerBlock: {
-    marginBottom: spacing.md,
-  },
-  greeting: {
-    color: colors.textMuted,
-    fontSize: font.sm,
-    letterSpacing: 2,
-    textTransform: 'uppercase',
-    marginBottom: 4,
-  },
-  vehicleName: {
-    color: colors.textPrimary,
-    fontSize: font.display,
-    fontWeight: '800',
-    letterSpacing: -0.4,
-  },
-  vehicleAccent: {
-    color: colors.brandFantic,
-  },
-  alertBanner: {
-    marginBottom: spacing.md,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm + 4,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.dangerEdge,
-    backgroundColor: colors.dangerSurface,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
-  alertDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 999,
-    backgroundColor: colors.error,
-  },
-  alertBannerText: {
-    flex: 1,
-    color: colors.error,
-    fontSize: font.sm,
-    fontWeight: '600',
-  },
-  alertArrow: {
-    color: colors.error,
-    fontSize: font.lg,
-  },
-  heroCard: {
-    minHeight: 196,
-    borderRadius: radius.xxl,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: colors.borderStrong,
-    backgroundColor: colors.bgElevated,
-    marginBottom: spacing.md,
-  },
-  heroGrid: {
-    position: 'absolute',
-    top: 0,
-    right: 0,
-    bottom: 0,
-    left: 0,
-    opacity: 0.5,
-    backgroundColor: 'transparent',
-    borderColor: colors.border,
-    borderTopWidth: 1,
-  },
-  heroGlow: {
-    display: 'none',
-  },
-  heroBody: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingHorizontal: 18,
-    paddingTop: 20,
-    paddingBottom: 18,
-    flex: 1,
-  },
-  heroCopy: {
-    flex: 1,
-    justifyContent: 'space-between',
-  },
-  heroBadge: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 999,
-    backgroundColor: colors.heroSurface,
-    borderWidth: 1,
-    borderColor: colors.heroEdge,
-    marginBottom: spacing.sm,
-  },
-  heroBadgeText: {
-    color: colors.primary,
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 0.8,
-  },
-  heroTitle: {
-    color: colors.textPrimary,
-    fontSize: font.xxxl,
-    fontWeight: '800',
-    lineHeight: 34,
-    marginBottom: 6,
-  },
-  heroSubline: {
-    color: colors.textSecondary,
-    fontSize: font.sm,
-    marginBottom: spacing.md,
-  },
-  heroStatusRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    flexWrap: 'wrap',
-  },
-  heroStatusText: {
-    color: colors.textSecondary,
-    fontSize: font.sm,
-  },
-  heroMotoWrap: {
-    width: 192,
-    height: 192,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  heroMotoEmoji: {
-    fontSize: 72,
-    marginBottom: spacing.sm,
-  },
-  heroMotoText: {
-    color: colors.accentSoft,
-    fontSize: 11,
-    letterSpacing: 1.2,
-    textTransform: 'uppercase',
-    fontWeight: '700',
-  },
-  heroImage: {
-    width: '100%',
-    height: '100%',
-  },
-  kpiGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
-    marginBottom: spacing.md,
-  },
-  metricCard: {
-    width: '48.5%',
-    borderRadius: 18,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surfaceDk,
-    overflow: 'hidden',
-  },
-  metricCardAccent: {
-    backgroundColor: colors.heroSurface,
-    borderColor: colors.heroEdge,
-  },
-  metricIcon: {
-    fontSize: 18,
-    marginBottom: 8,
-  },
-  metricLabel: {
-    color: colors.textMuted,
-    fontSize: 10,
-    fontWeight: '700',
-    letterSpacing: 1.5,
-    textTransform: 'uppercase',
-    marginBottom: 4,
-  },
-  metricValue: {
-    color: colors.textPrimary,
-    fontSize: 30,
-    fontWeight: '800',
-    letterSpacing: -0.6,
-  },
-  metricValueAccent: {
-    color: colors.primary,
-  },
-  metricUnit: {
-    color: colors.textSecondary,
-    fontSize: 11,
-    fontWeight: '500',
-  },
-  metricUnitWhite: {
-    color: colors.textPrimary,
-  },
-  viewSwitcher: {
-    flexDirection: 'row',
-    gap: 8,
-    marginBottom: spacing.md,
-  },
-  toggleChip: {
-    flex: 1,
-    alignItems: 'center',
-    paddingVertical: 10,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surfaceDk,
-  },
-  toggleChipActive: {
-    backgroundColor: colors.heroSurface,
-    borderColor: colors.heroEdge,
-  },
-  toggleChipText: {
-    color: colors.textSecondary,
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  toggleChipTextActive: {
-    color: colors.primary,
-  },
-  infoCard: {
-    marginBottom: 14,
-    padding: 16,
-    borderRadius: 20,
-    backgroundColor: colors.surfaceDk,
-    borderWidth: 1,
-    borderColor: colors.border,
-    overflow: 'hidden',
-  },
-  infoCardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  infoCardTitle: {
-    color: colors.primary,
-    fontSize: 12,
-    fontWeight: '700',
-    letterSpacing: 1,
-    textTransform: 'uppercase',
-  },
-  infoCardDate: {
-    color: colors.textMuted,
-    fontSize: 11,
-  },
-  infoStatsRow: {
-    flexDirection: 'row',
-    gap: 16,
-  },
-  infoStatItem: {
-    flex: 1,
-  },
-  infoStatValue: {
-    color: colors.textPrimary,
-    fontSize: 21,
-    fontWeight: '800',
-  },
-  infoStatLabel: {
-    color: colors.textMuted,
-    fontSize: 10,
-    textTransform: 'uppercase',
-    marginTop: 3,
-    letterSpacing: 0.8,
-  },
-  infoNote: {
-    color: colors.textSecondary,
-    fontSize: 12,
-    lineHeight: 18,
-    marginTop: 14,
-  },
-  chartCard: {
-    marginBottom: 14,
-    padding: 18,
-    borderRadius: 20,
-    backgroundColor: colors.surfaceDk,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  chartTitle: {
-    color: colors.textSecondary,
-    fontSize: 12,
-    fontWeight: '700',
-    letterSpacing: 1,
-    textTransform: 'uppercase',
-    marginBottom: 16,
-  },
-  barChart: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    gap: 8,
-    height: 96,
-  },
-  barCol: {
-    flex: 1,
-    alignItems: 'center',
-    gap: 6,
-  },
-  bar: {
-    width: '100%',
-    borderTopLeftRadius: 6,
-    borderTopRightRadius: 6,
-    minHeight: 6,
-  },
-  barActive: {
-    backgroundColor: colors.primary,
-  },
-  barInactive: {
-    backgroundColor: colors.panelRaised,
-  },
-  barLabel: {
-    color: colors.textMuted,
-    fontSize: 10,
-  },
-  legendWrap: {
-    gap: 10,
-  },
-  legendItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  legendDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 999,
-  },
-  legendLabel: {
-    flex: 1,
-    color: colors.textSecondary,
-    fontSize: 12,
-  },
-  legendValue: {
-    color: colors.textPrimary,
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  emptyChartText: {
-    color: colors.textSecondary,
-    fontSize: 12,
-    lineHeight: 19,
-  },
-  actionStack: {
-    gap: spacing.sm,
-  },
+    headerBlock: {
+      marginBottom: spacing.md,
+    },
+    greeting: {
+      color: colors.textMuted,
+      fontSize: font.sm,
+      letterSpacing: 2,
+      textTransform: 'uppercase',
+      marginBottom: 4,
+    },
+    vehicleName: {
+      color: colors.textPrimary,
+      fontSize: font.display,
+      fontWeight: '800',
+      letterSpacing: -0.4,
+    },
+    vehicleAccent: {
+      color: colors.brandFantic,
+    },
+    alertBanner: {
+      marginBottom: spacing.md,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.sm + 4,
+      borderRadius: radius.lg,
+      borderWidth: 1,
+      borderColor: colors.dangerEdge,
+      backgroundColor: colors.dangerSurface,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.sm,
+    },
+    alertDot: {
+      width: 8,
+      height: 8,
+      borderRadius: 999,
+      backgroundColor: colors.error,
+    },
+    alertBannerText: {
+      flex: 1,
+      color: colors.error,
+      fontSize: font.sm,
+      fontWeight: '600',
+    },
+    alertArrow: {
+      color: colors.error,
+      fontSize: font.lg,
+    },
+    heroCard: {
+      minHeight: 196,
+      borderRadius: radius.xxl,
+      overflow: 'hidden',
+      borderWidth: 1,
+      borderColor: colors.borderStrong,
+      backgroundColor: colors.bgElevated,
+      marginBottom: spacing.md,
+    },
+    heroGrid: {
+      position: 'absolute',
+      top: 0,
+      right: 0,
+      bottom: 0,
+      left: 0,
+      opacity: 0.5,
+      backgroundColor: 'transparent',
+      borderColor: colors.border,
+      borderTopWidth: 1,
+    },
+    heroGlow: {
+      display: 'none',
+    },
+    heroBody: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      paddingHorizontal: 18,
+      paddingTop: 20,
+      paddingBottom: 18,
+      flex: 1,
+    },
+    heroCopy: {
+      flex: 1,
+      justifyContent: 'space-between',
+    },
+    heroBadge: {
+      alignSelf: 'flex-start',
+      paddingHorizontal: 10,
+      paddingVertical: 4,
+      borderRadius: 999,
+      backgroundColor: colors.heroSurface,
+      borderWidth: 1,
+      borderColor: colors.heroEdge,
+      marginBottom: spacing.sm,
+    },
+    heroBadgeText: {
+      color: colors.primary,
+      fontSize: 11,
+      fontWeight: '700',
+      letterSpacing: 0.8,
+    },
+    heroTitle: {
+      color: colors.textPrimary,
+      fontSize: font.xxxl,
+      fontWeight: '800',
+      lineHeight: 34,
+      marginBottom: 6,
+    },
+    heroSubline: {
+      color: colors.textSecondary,
+      fontSize: font.sm,
+      marginBottom: spacing.md,
+    },
+    heroStatusRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.sm,
+      flexWrap: 'wrap',
+    },
+    heroStatusText: {
+      color: colors.textSecondary,
+      fontSize: font.sm,
+    },
+    heroMotoWrap: {
+      width: 192,
+      height: 192,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    heroMotoEmoji: {
+      fontSize: 72,
+      marginBottom: spacing.sm,
+    },
+    heroMotoText: {
+      color: colors.accentSoft,
+      fontSize: 11,
+      letterSpacing: 1.2,
+      textTransform: 'uppercase',
+      fontWeight: '700',
+    },
+    heroImage: {
+      width: '100%',
+      height: '100%',
+    },
+    kpiGrid: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 10,
+      marginBottom: spacing.md,
+    },
+    metricCard: {
+      width: '48.5%',
+      borderRadius: 18,
+      paddingHorizontal: 16,
+      paddingVertical: 14,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surfaceDk,
+      overflow: 'hidden',
+    },
+    metricCardAccent: {
+      backgroundColor: colors.heroSurface,
+      borderColor: colors.heroEdge,
+    },
+    metricIcon: {
+      fontSize: 18,
+      marginBottom: 8,
+    },
+    metricLabel: {
+      color: colors.textMuted,
+      fontSize: 10,
+      fontWeight: '700',
+      letterSpacing: 1.5,
+      textTransform: 'uppercase',
+      marginBottom: 4,
+    },
+    metricValue: {
+      color: colors.textPrimary,
+      fontSize: 30,
+      fontWeight: '800',
+      letterSpacing: -0.6,
+    },
+    metricValueAccent: {
+      color: colors.primary,
+    },
+    metricUnit: {
+      color: colors.textSecondary,
+      fontSize: 11,
+      fontWeight: '500',
+    },
+    metricUnitWhite: {
+      color: colors.textPrimary,
+    },
+    viewSwitcher: {
+      flexDirection: 'row',
+      gap: 8,
+      marginBottom: spacing.md,
+    },
+    toggleChip: {
+      flex: 1,
+      alignItems: 'center',
+      paddingVertical: 10,
+      borderRadius: 999,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surfaceDk,
+    },
+    toggleChipActive: {
+      backgroundColor: colors.heroSurface,
+      borderColor: colors.heroEdge,
+    },
+    toggleChipText: {
+      color: colors.textSecondary,
+      fontSize: 13,
+      fontWeight: '600',
+    },
+    toggleChipTextActive: {
+      color: colors.primary,
+    },
+    infoCard: {
+      marginBottom: 14,
+      padding: 16,
+      borderRadius: 20,
+      backgroundColor: colors.surfaceDk,
+      borderWidth: 1,
+      borderColor: colors.border,
+      overflow: 'hidden',
+    },
+    infoCardHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: 12,
+    },
+    infoCardTitle: {
+      color: colors.primary,
+      fontSize: 12,
+      fontWeight: '700',
+      letterSpacing: 1,
+      textTransform: 'uppercase',
+    },
+    infoCardDate: {
+      color: colors.textMuted,
+      fontSize: 11,
+    },
+    infoStatsRow: {
+      flexDirection: 'row',
+      gap: 16,
+    },
+    infoStatItem: {
+      flex: 1,
+    },
+    infoStatValue: {
+      color: colors.textPrimary,
+      fontSize: 21,
+      fontWeight: '800',
+    },
+    infoStatLabel: {
+      color: colors.textMuted,
+      fontSize: 10,
+      textTransform: 'uppercase',
+      marginTop: 3,
+      letterSpacing: 0.8,
+    },
+    infoNote: {
+      color: colors.textSecondary,
+      fontSize: 12,
+      lineHeight: 18,
+      marginTop: 14,
+    },
+    chartCard: {
+      marginBottom: 14,
+      padding: 18,
+      borderRadius: 20,
+      backgroundColor: colors.surfaceDk,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    chartTitle: {
+      color: colors.textSecondary,
+      fontSize: 12,
+      fontWeight: '700',
+      letterSpacing: 1,
+      textTransform: 'uppercase',
+      marginBottom: 16,
+    },
+    barChart: {
+      flexDirection: 'row',
+      alignItems: 'flex-end',
+      gap: 8,
+      height: 96,
+    },
+    barCol: {
+      flex: 1,
+      alignItems: 'center',
+      gap: 6,
+    },
+    bar: {
+      width: '100%',
+      borderTopLeftRadius: 6,
+      borderTopRightRadius: 6,
+      minHeight: 6,
+    },
+    barActive: {
+      backgroundColor: colors.primary,
+    },
+    barInactive: {
+      backgroundColor: colors.panelRaised,
+    },
+    barLabel: {
+      color: colors.textMuted,
+      fontSize: 10,
+    },
+    legendWrap: {
+      gap: 10,
+    },
+    legendItem: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+    },
+    legendDot: {
+      width: 8,
+      height: 8,
+      borderRadius: 999,
+    },
+    legendLabel: {
+      flex: 1,
+      color: colors.textSecondary,
+      fontSize: 12,
+    },
+    legendValue: {
+      color: colors.textPrimary,
+      fontSize: 12,
+      fontWeight: '700',
+    },
+    emptyChartText: {
+      color: colors.textSecondary,
+      fontSize: 12,
+      lineHeight: 19,
+    },
+    actionStack: {
+      gap: spacing.sm,
+    },
   })
 }

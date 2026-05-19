@@ -1,5 +1,7 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import Constants from 'expo-constants'
 import { Alert, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native'
+import { useFocusEffect } from 'expo-router'
 import MapView, { Polyline, PROVIDER_DEFAULT } from 'react-native-maps'
 import { ActionButton } from '../../src/components/ui/ActionButton'
 import { AppScreen } from '../../src/components/ui/AppScreen'
@@ -52,14 +54,27 @@ export default function TripsScreen() {
 
   const mapRef = useRef<MapView>(null)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const pointsRef = useRef<RoutePoint[]>([])
+  const startTsRef = useRef(0)
+  const maxSpeedRef = useRef(0)
+  const leanSummaryRef = useRef<LeanAngleSummary>(createLeanAngleSummary())
   const { width } = useWindowDimensions()
   const mapHeight = Math.round(width * 0.68)
+  const canRenderMap = hasNativeMapConfig()
 
   useEffect(() => {
     if (activeVehicle?.id) {
-      loadTrips(activeVehicle.id)
+      void loadTrips(activeVehicle.id)
     }
   }, [activeVehicle?.id, loadTrips])
+
+  useFocusEffect(
+    useCallback(() => {
+      if (activeVehicle?.id) {
+        void loadTrips(activeVehicle.id)
+      }
+    }, [activeVehicle?.id, loadTrips]),
+  )
 
   useEffect(() => {
     void syncLeanStatus()
@@ -67,7 +82,7 @@ export default function TripsScreen() {
 
   useEffect(() => {
     if (screen === 'recording') {
-      timerRef.current = setInterval(() => setElapsed(Math.floor((Date.now() - startTs) / 1000)), 1000)
+      timerRef.current = setInterval(() => setElapsed(Math.floor((Date.now() - startTsRef.current) / 1000)), 1000)
     } else if (timerRef.current) {
       clearInterval(timerRef.current)
     }
@@ -76,7 +91,7 @@ export default function TripsScreen() {
         clearInterval(timerRef.current)
       }
     }
-  }, [screen, startTs])
+  }, [screen])
 
   async function handleStart() {
     if (!activeVehicle?.id || !user?.id) {
@@ -100,32 +115,38 @@ export default function TripsScreen() {
       }
 
       const ts = Date.now()
+      const emptySummary = createLeanAngleSummary()
+      startTsRef.current = ts
+      pointsRef.current = []
+      maxSpeedRef.current = 0
+      leanSummaryRef.current = emptySummary
       setStartTs(ts)
       setPoints([])
       setSpeed(0)
       setMaxSpeed(0)
       setElapsed(0)
       setCurrentLeanAngle(null)
-      setLeanSummary(createLeanAngleSummary())
+      setLeanSummary(emptySummary)
       setScreen('recording')
       await startTracking((point) => {
-        setPoints((prev) => {
-          const next = [...prev, point]
-          mapRef.current?.animateToRegion({
-            latitude: point.lat,
-            longitude: point.lng,
-            latitudeDelta: 0.005,
-            longitudeDelta: 0.005,
-          }, 500)
-          return next
-        })
+        pointsRef.current = [...pointsRef.current, point]
+        setPoints(pointsRef.current)
+        mapRef.current?.animateToRegion({
+          latitude: point.lat,
+          longitude: point.lng,
+          latitudeDelta: 0.005,
+          longitudeDelta: 0.005,
+        }, 500)
         setSpeed(Math.round(point.speedKmh))
-        setMaxSpeed((prev) => Math.max(prev, point.speedKmh))
+        maxSpeedRef.current = Math.max(maxSpeedRef.current, point.speedKmh)
+        setMaxSpeed(maxSpeedRef.current)
       })
       if (leanAvailable && leanCalibrated) {
         await startLeanAngleTracking((sample) => {
           setCurrentLeanAngle(sample.correctedAngleDeg)
-          setLeanSummary((prev) => updateLeanAngleSummary(prev, sample.correctedAngleDeg))
+          const nextSummary = updateLeanAngleSummary(leanSummaryRef.current, sample.correctedAngleDeg)
+          leanSummaryRef.current = nextSummary
+          setLeanSummary(nextSummary)
         })
       }
     } catch (error) {
@@ -138,16 +159,23 @@ export default function TripsScreen() {
   }
 
   async function handleStop() {
+    const tripPoints = [...pointsRef.current]
+    const tripStartTs = startTsRef.current
+    const tripMaxSpeed = maxSpeedRef.current
+    const tripLeanSummary = leanSummaryRef.current
+
     stopTracking()
     stopLeanAngleTracking()
     const endTs = Date.now()
     setScreen('list')
+    setCurrentLeanAngle(null)
+    setSpeed(0)
 
     if (!user?.id || !activeVehicle?.id) {
       return
     }
 
-    const validated = validateTrip(points, startTs, endTs, MANUAL_TRIP_VALIDATION)
+    const validated = validateTrip(tripPoints, tripStartTs, endTs, MANUAL_TRIP_VALIDATION)
     if (!validated) {
       Alert.alert(
         'Viaggio non salvato',
@@ -156,28 +184,28 @@ export default function TripsScreen() {
       return
     }
 
-    const avgSpeed = points.length > 0 ? points.reduce((sum, point) => sum + point.speedKmh, 0) / points.length : 0
-    const maxBrakingG = computeMaxBrakingG(points)
+    const avgSpeed = tripPoints.length > 0 ? tripPoints.reduce((sum, point) => sum + point.speedKmh, 0) / tripPoints.length : 0
+    const maxBrakingG = computeMaxBrakingG(tripPoints)
     try {
       await saveTrip({
         user_id: user.id,
         vehicle_id: activeVehicle.id,
-        start_time: new Date(startTs).toISOString(),
+        start_time: new Date(tripStartTs).toISOString(),
         end_time: new Date(endTs).toISOString(),
         distance_km: validated.distanceKm,
         duration_minutes: validated.durationMinutes,
         avg_speed_kmh: Math.round(avgSpeed * 10) / 10,
-        max_speed_kmh: Math.round(maxSpeed * 10) / 10,
-        max_lean_angle_deg: leanSummary.maxLeanAngleDeg || null,
-        max_lean_left_deg: leanSummary.maxLeanLeftDeg || null,
-        max_lean_right_deg: leanSummary.maxLeanRightDeg || null,
+        max_speed_kmh: Math.round(tripMaxSpeed * 10) / 10,
+        max_lean_angle_deg: tripLeanSummary.maxLeanAngleDeg || null,
+        max_lean_left_deg: tripLeanSummary.maxLeanLeftDeg || null,
+        max_lean_right_deg: tripLeanSummary.maxLeanRightDeg || null,
         max_braking_g: maxBrakingG,
-        route_json: JSON.stringify(points),
+        route_json: JSON.stringify(tripPoints),
       })
       Alert.alert('Viaggio salvato', `${validated.distanceKm.toFixed(1)} km`)
     } catch (error) {
       console.error('[trips] saveTrip:', error)
-      Alert.alert('Errore salvataggio', 'Il viaggio e stato registrato ma non sono riuscito a salvarlo sul dispositivo.')
+      Alert.alert('Errore salvataggio', 'Non sono riuscito a salvarlo sul dispositivo, quindi non comparira nello storico.')
     }
   }
 
@@ -249,14 +277,8 @@ export default function TripsScreen() {
     const distKm = points.length > 1
       ? points.reduce((acc, point, index) => index === 0 ? 0 : acc + simpleDistKm(points[index - 1], point), 0)
       : 0
-
-    return (
-      <AppScreen padded={false}>
-        <View style={styles.liveHeader}>
-          <StatusPill label="REC" tone="danger" />
-          <Text style={styles.liveTimer}>{formatElapsed(elapsed)}</Text>
-          <ActionButton label="Stop" variant="danger" compact onPress={() => { void handleStop() }} />
-        </View>
+    const recordingMap = canRenderMap
+      ? (
         <MapView
           ref={mapRef}
           style={{ width, height: mapHeight }}
@@ -267,6 +289,17 @@ export default function TripsScreen() {
         >
           {polyCoords.length > 1 ? <Polyline coordinates={polyCoords} strokeColor={colors.primary} strokeWidth={4} /> : null}
         </MapView>
+      )
+      : <MapFallback />
+
+    return (
+      <AppScreen padded={false}>
+        <View style={styles.liveHeader}>
+          <StatusPill label="REC" tone="danger" />
+          <Text style={styles.liveTimer}>{formatElapsed(elapsed)}</Text>
+          <ActionButton label="Stop" variant="danger" compact onPress={() => { void handleStop() }} />
+        </View>
+        {recordingMap}
         <View style={styles.liveStats}>
           <StatCell value={`${distKm.toFixed(1)} km`} label="distanza" />
           <StatCell value={`${currentSpeed} km/h`} label="velocita" />
@@ -289,6 +322,19 @@ export default function TripsScreen() {
     const routePoints: RoutePoint[] = JSON.parse(trip.route_json)
     const polyCoords = routePoints.map((point) => ({ latitude: point.lat, longitude: point.lng }))
     const center = routePoints[Math.floor(routePoints.length / 2)]
+    const detailMap = canRenderMap
+      ? (
+        <MapView
+          style={{ width, height: mapHeight }}
+          provider={PROVIDER_DEFAULT}
+          initialRegion={center
+            ? { latitude: center.lat, longitude: center.lng, latitudeDelta: 0.05, longitudeDelta: 0.05 }
+            : { latitude: 41.9, longitude: 12.5, latitudeDelta: 0.1, longitudeDelta: 0.1 }}
+        >
+          {polyCoords.length > 1 ? <Polyline coordinates={polyCoords} strokeColor={colors.primary} strokeWidth={4} /> : null}
+        </MapView>
+      )
+      : <MapFallback />
 
     return (
       <AppScreen padded={false}>
@@ -299,15 +345,7 @@ export default function TripsScreen() {
           <Text style={styles.detailTitle}>{formatDate(trip.start_time.slice(0, 10))}</Text>
           <View style={{ width: 56 }} />
         </View>
-        <MapView
-          style={{ width, height: mapHeight }}
-          provider={PROVIDER_DEFAULT}
-          initialRegion={center
-            ? { latitude: center.lat, longitude: center.lng, latitudeDelta: 0.05, longitudeDelta: 0.05 }
-            : { latitude: 41.9, longitude: 12.5, latitudeDelta: 0.1, longitudeDelta: 0.1 }}
-        >
-          {polyCoords.length > 1 ? <Polyline coordinates={polyCoords} strokeColor={colors.primary} strokeWidth={4} /> : null}
-        </MapView>
+        {detailMap}
         <AppScreen>
           <Panel title="Dati viaggio" subtitle="Distanza, durata e velocita del percorso registrato." tone="info">
             <View style={styles.tripStatsRow}>
@@ -388,9 +426,12 @@ export default function TripsScreen() {
                     label="Ferma e salva viaggio automatico"
                     variant="danger"
                     onPress={() => {
-                      void stopCurrentTrip().then(async () => {
-                        if (activeVehicle?.id) {
+                      void stopCurrentTrip().then(async (saved) => {
+                        if (saved && activeVehicle?.id) {
                           await loadTrips(activeVehicle.id)
+                          Alert.alert('Viaggio salvato', 'Il viaggio automatico e stato aggiunto allo storico.')
+                        } else if (!saved) {
+                          Alert.alert('Nessun viaggio salvato', 'La sessione automatica non aveva dati sufficienti per essere registrata.')
                         }
                       })
                     }}
@@ -486,6 +527,20 @@ function StatCell({ value, label }: { value: string; label: string }) {
   )
 }
 
+function MapFallback() {
+  const styles = createStyles(useTheme())
+
+  return (
+    <View style={styles.mapFallback}>
+      <Text style={styles.mapFallbackIcon}>🗺️</Text>
+      <Text style={styles.mapFallbackTitle}>Mappa non disponibile in questa build</Text>
+      <Text style={styles.mapFallbackText}>
+        Il tracking continua a funzionare, ma la chiave Google Maps Android non risulta configurata correttamente.
+      </Text>
+    </View>
+  )
+}
+
 function confirmTrackingStart(): Promise<boolean> {
   return new Promise((resolve) => {
     Alert.alert('Avvia registrazione GPS', 'GarageMoto usera il GPS durante il viaggio. Lo schermo puo spegnersi normalmente.', [
@@ -510,6 +565,12 @@ function simpleDistKm(a: RoutePoint, b: RoutePoint): number {
     Math.cos((a.lat * Math.PI) / 180) * Math.cos((b.lat * Math.PI) / 180) *
     Math.sin(dLng / 2) ** 2
   return R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x))
+}
+
+function hasNativeMapConfig(): boolean {
+  const publicEnvKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_ANDROID_API_KEY
+  const expoConfigKey = Constants.expoConfig?.android?.config?.googleMaps?.apiKey
+  return Boolean(publicEnvKey || expoConfigKey)
 }
 
 function createStyles(theme: ReturnType<typeof useTheme>) {

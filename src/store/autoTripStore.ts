@@ -33,7 +33,7 @@ interface AutoTripStore {
   refreshStatus: () => Promise<void>
   setContext: (userId: string | null, vehicleId: string | null) => Promise<void>
   setEnabled: (enabled: boolean) => Promise<boolean>
-  stopCurrentTrip: () => Promise<void>
+  stopCurrentTrip: () => Promise<boolean>
 }
 
 export const useAutoTripStore = create<AutoTripStore>((set, get) => ({
@@ -168,18 +168,20 @@ export const useAutoTripStore = create<AutoTripStore>((set, get) => ({
           isBusy: false,
           error: AUTO_TRIP_UNAVAILABLE_MESSAGE,
         })
-        return
+        return false
       }
 
-      await service.finalizeCurrentSession()
+      const savedTrip = await service.finalizeCurrentSession()
       await get().refreshStatus()
       set({ isBusy: false })
+      return Boolean(savedTrip)
     } catch (error) {
       console.error('[autoTripStore] stopCurrentTrip:', error)
       set({
         isBusy: false,
         error: 'Impossibile fermare il viaggio automatico.',
       })
+      return false
     }
   },
 }))

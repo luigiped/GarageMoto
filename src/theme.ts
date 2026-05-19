@@ -1,20 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage'
 
-// Design system GarageMoto.
-//
-// UX STYLE:
-//   'glass' → layout mockup des2, hero fotografica, pannelli glassmorphism
-//   'rally' → layout precedente piu solido/classico
-//
-// COLOR THEME:
-//   'rally'    → arancione classico
-//   'cobalt'   → blu notte
-//   'rosso'    → rosso motorsport
-//   'emerald'  → verde avventura
-//   'titanium' → grigio acciaio
-//   'violet'   → viola elettrico
-//   'giallo'   → giallo racing
-
 export type UiStyle = 'rally' | 'glass'
 export type ColorTheme =
   | 'rally'
@@ -41,7 +26,7 @@ type ThemeShape = {
     primaryEdge: string
     accentSoft: string
     accentGlow: string
-    brandFantic: string        // Rosso brand Fantic — usare SOLO per il nome "Fantic"
+    brandFantic: string
     success: string
     successSurface: string
     successEdge: string
@@ -96,8 +81,6 @@ type ThemeShape = {
   }
 }
 
-// ─── Valori condivisi tra tutti i preset ──────────────────────────────────────
-
 const sharedSpacing = {
   xs: 4,
   sm: 8,
@@ -118,8 +101,6 @@ const sharedFont = {
   xxxl: 30,
 }
 
-// Semantica condivisa: success / warning / error uguali per tutti i preset,
-// tranne 'giallo' che sposta warning su arancione per evitare conflitti col primary.
 const sharedSemantic = {
   success: '#30D158',
   successSurface: 'rgba(48,209,88,0.12)',
@@ -156,12 +137,7 @@ const sharedGlassRadius = {
 
 const sharedGlassFont = { ...sharedFont, display: 34 }
 
-// ─── PRESET ───────────────────────────────────────────────────────────────────
-
 const THEMES: Record<ColorTheme, ThemeShape> = {
-
-  // ── 1. RALLY — Arancione classico ───────────────────────────────────────────
-  // Stile solido (no rgba), preset originale mantenuto invariato.
   rally: {
     colors: {
       primary: '#F26A21',
@@ -200,9 +176,6 @@ const THEMES: Record<ColorTheme, ThemeShape> = {
     },
     font: sharedFont,
   },
-
-  // ── 2. COBALT SPEED — Blu notte ─────────────────────────────────────────────
-  // Info spostato su cyan (#06B6D4) per non confondersi col primary blu.
   cobalt: {
     colors: {
       primary: '#1971C2',
@@ -231,9 +204,6 @@ const THEMES: Record<ColorTheme, ThemeShape> = {
     radius: sharedGlassRadius,
     font: sharedGlassFont,
   },
-
-  // ── 3. ROSSO CORSA — Rosso motorsport ───────────────────────────────────────
-  // Error usa un rosso più saturo/luminoso (#FF2D20) per distinguersi dal primary scuro.
   rosso: {
     colors: {
       primary: '#C1121F',
@@ -265,8 +235,6 @@ const THEMES: Record<ColorTheme, ThemeShape> = {
     radius: sharedGlassRadius,
     font: sharedGlassFont,
   },
-
-  // ── 4. EMERALD TRAIL — Verde avventura ──────────────────────────────────────
   emerald: {
     colors: {
       primary: '#059669',
@@ -295,9 +263,6 @@ const THEMES: Record<ColorTheme, ThemeShape> = {
     radius: sharedGlassRadius,
     font: sharedGlassFont,
   },
-
-  // ── 5. TITANIUM — Grigio acciaio ────────────────────────────────────────────
-  // Primary su blu-grigio (#6B8BA4): leggibile con testo bianco, percepito "silver/steel".
   titanium: {
     colors: {
       primary: '#6B8BA4',
@@ -326,9 +291,6 @@ const THEMES: Record<ColorTheme, ThemeShape> = {
     radius: sharedGlassRadius,
     font: sharedGlassFont,
   },
-
-  // ── 6. DARK VIOLET — Viola elettrico ────────────────────────────────────────
-  // Info su cyan per non confondersi col primary viola.
   violet: {
     colors: {
       primary: '#7C3AED',
@@ -357,10 +319,6 @@ const THEMES: Record<ColorTheme, ThemeShape> = {
     radius: sharedGlassRadius,
     font: sharedGlassFont,
   },
-
-  // ── 7. GIALLO CORSA — Giallo racing ─────────────────────────────────────────
-  // Warning spostato su arancione (#FF9500) — il primary è già giallo.
-  // Info su blu per il massimo contrasto cromatico col giallo.
   giallo: {
     colors: {
       primary: '#F5C200',
@@ -373,7 +331,7 @@ const THEMES: Record<ColorTheme, ThemeShape> = {
       success: '#30D158',
       successSurface: 'rgba(48,209,88,0.12)',
       successEdge: 'rgba(48,209,88,0.28)',
-      warning: '#FF9500',                         // arancione — primary è giallo
+      warning: '#FF9500',
       warningSurface: 'rgba(255,149,0,0.12)',
       warningEdge: 'rgba(255,149,0,0.30)',
       error: '#FF453A',
@@ -398,8 +356,6 @@ const THEMES: Record<ColorTheme, ThemeShape> = {
     font: sharedGlassFont,
   },
 }
-
-// ─── Export ───────────────────────────────────────────────────────────────────
 
 export function getTheme(colorTheme: ColorTheme): ThemeShape {
   return THEMES[colorTheme]

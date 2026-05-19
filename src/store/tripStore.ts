@@ -15,33 +15,25 @@ interface TripStore {
   trips: Trip[]
   isLoading: boolean
   error: string | null
+  loadedVehicleId: string | null
   loadTrips: (vehicleId: string) => Promise<void>
   saveTrip: (data: NewTrip) => Promise<Trip>
   deleteTrip: (id: string) => Promise<void>
+  ingestExternalTrip: (trip: Trip) => void
 }
 
 export const useTripStore = create<TripStore>((set, get) => ({
   trips: [],
   isLoading: false,
   error: null,
+  loadedVehicleId: null,
 
   loadTrips: async (vehicleId) => {
-    set({ isLoading: true, error: null })
+    set({ isLoading: true, error: null, loadedVehicleId: vehicleId })
     try {
-      const db = getDb()
-      const rows = await db.getAllAsync<TripRow>(
-        'SELECT * FROM trips WHERE vehicle_id=? ORDER BY start_time DESC',
-        [vehicleId],
-      )
-      const trips = await Promise.all(
-        rows.map(async (row) => {
-          const trip = await deserializeTrip(row)
-          await migrateTripProtectionRow(db, row)
-          return trip
-        }),
-      )
+      const trips = await readTripsFromDb(vehicleId)
       set({ trips, isLoading: false })
-      _syncTrips(vehicleId)
+      void _syncTrips(vehicleId)
     } catch (e) {
       console.error('[tripStore] load:', e)
       set({ isLoading: false, error: 'Errore caricamento viaggi' })
@@ -52,25 +44,14 @@ export const useTripStore = create<TripStore>((set, get) => ({
     const now = new Date().toISOString()
     const trip: Trip = { ...data, id: createId(), created_at: now, updated_at: now }
     try {
-      const db = getDb()
-      const protectedTrip = await protectTripForLocalStorage(trip)
-      await db.runAsync(
-        `INSERT INTO trips
-         (id,user_id,vehicle_id,start_time,end_time,distance_km,
-          duration_minutes,avg_speed_kmh,max_speed_kmh,max_lean_angle_deg,
-          max_lean_left_deg,max_lean_right_deg,max_braking_g,route_json,
-          notes,created_at,updated_at,sync_pending)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)`,
-        [
-          trip.id, trip.user_id, trip.vehicle_id, trip.start_time,
-          trip.end_time, trip.distance_km, trip.duration_minutes,
-          trip.avg_speed_kmh, trip.max_speed_kmh, trip.max_lean_angle_deg ?? null,
-          trip.max_lean_left_deg ?? null, trip.max_lean_right_deg ?? null, trip.max_braking_g ?? null,
-          protectedTrip.route_json, protectedTrip.notes, trip.created_at, trip.updated_at,
-        ],
-      )
-      set({ trips: [trip, ...get().trips] })
-      _pushTrip(trip)
+      await persistTripLocally(trip, 1)
+      set((state) => ({
+        error: null,
+        trips: state.loadedVehicleId === trip.vehicle_id
+          ? upsertTripInState(state.trips, trip)
+          : state.trips,
+      }))
+      void _pushTrip(trip)
       return trip
     } catch (e) {
       console.error('[tripStore] save:', e)
@@ -94,6 +75,14 @@ export const useTripStore = create<TripStore>((set, get) => ({
       console.error('[tripStore] delete:', e)
       set({ error: 'Errore eliminazione viaggio' })
     }
+  },
+
+  ingestExternalTrip: (trip) => {
+    set((state) => ({
+      trips: state.loadedVehicleId === trip.vehicle_id
+        ? upsertTripInState(state.trips, trip)
+        : state.trips,
+    }))
   },
 }))
 
@@ -163,6 +152,8 @@ async function _syncTrips(vehicleId: string) {
       ],
     ).catch(console.error)
   }
+
+  await refreshLoadedVehicleTrips(vehicleId)
 }
 
 async function _pushPendingTrips(vehicleId: string) {
@@ -187,4 +178,73 @@ async function deserializeTrip(row: TripRow): Promise<Trip> {
     route_json: unprotected.route_json,
     notes: unprotected.notes ?? undefined,
   }
+}
+
+async function readTripsFromDb(vehicleId: string): Promise<Trip[]> {
+  const db = getDb()
+  const rows = await db.getAllAsync<TripRow>(
+    'SELECT * FROM trips WHERE vehicle_id=? ORDER BY start_time DESC',
+    [vehicleId],
+  )
+
+  return Promise.all(
+    rows.map(async (row) => {
+      const trip = await deserializeTrip(row)
+      await migrateTripProtectionRow(db, row)
+      return trip
+    }),
+  )
+}
+
+async function persistTripLocally(trip: Trip, syncPending: 0 | 1): Promise<void> {
+  const db = getDb()
+  const protectedTrip = await protectTripForLocalStorage(trip)
+  await db.runAsync(
+    `INSERT OR REPLACE INTO trips
+     (id,user_id,vehicle_id,start_time,end_time,distance_km,
+      duration_minutes,avg_speed_kmh,max_speed_kmh,max_lean_angle_deg,
+      max_lean_left_deg,max_lean_right_deg,max_braking_g,route_json,
+      notes,created_at,updated_at,sync_pending)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    [
+      trip.id,
+      trip.user_id,
+      trip.vehicle_id,
+      trip.start_time,
+      trip.end_time,
+      trip.distance_km,
+      trip.duration_minutes,
+      trip.avg_speed_kmh,
+      trip.max_speed_kmh,
+      trip.max_lean_angle_deg ?? null,
+      trip.max_lean_left_deg ?? null,
+      trip.max_lean_right_deg ?? null,
+      trip.max_braking_g ?? null,
+      protectedTrip.route_json,
+      protectedTrip.notes,
+      trip.created_at,
+      trip.updated_at,
+      syncPending,
+    ],
+  )
+}
+
+async function refreshLoadedVehicleTrips(vehicleId: string): Promise<void> {
+  if (useTripStore.getState().loadedVehicleId !== vehicleId) {
+    return
+  }
+
+  try {
+    const trips = await readTripsFromDb(vehicleId)
+    if (useTripStore.getState().loadedVehicleId === vehicleId) {
+      useTripStore.setState({ trips })
+    }
+  } catch (error) {
+    console.error('[tripStore] refresh loaded vehicle:', error)
+  }
+}
+
+function upsertTripInState(trips: Trip[], trip: Trip): Trip[] {
+  return [trip, ...trips.filter((item) => item.id !== trip.id)]
+    .sort((a, b) => b.start_time.localeCompare(a.start_time))
 }

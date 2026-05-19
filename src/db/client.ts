@@ -55,7 +55,7 @@ export async function initDb(): Promise<void> {
     await adapter.execAsync(CREATE_MAINTENANCE)
     await adapter.execAsync(CREATE_TRIPS)
     await adapter.execAsync(CREATE_SYNC_QUEUE)
-    await ensureTripsPerformanceColumns(adapter)
+    await ensureTripsSchemaColumns(adapter)
 
     _db = adapter
     _dbMode = 'sqlite'
@@ -72,14 +72,17 @@ export async function initDb(): Promise<void> {
     await memory.execAsync(CREATE_MAINTENANCE)
     await memory.execAsync(CREATE_TRIPS)
     await memory.execAsync(CREATE_SYNC_QUEUE)
+    await ensureTripsSchemaColumns(memory)
 
     _db = memory
     _dbMode = 'memory'
   }
 }
 
-async function ensureTripsPerformanceColumns(db: AppDatabase): Promise<void> {
+async function ensureTripsSchemaColumns(db: AppDatabase): Promise<void> {
   const migrations = [
+    'ALTER TABLE trips ADD COLUMN notes TEXT',
+    'ALTER TABLE trips ADD COLUMN sync_pending INTEGER NOT NULL DEFAULT 0',
     'ALTER TABLE trips ADD COLUMN max_lean_angle_deg REAL',
     'ALTER TABLE trips ADD COLUMN max_lean_left_deg REAL',
     'ALTER TABLE trips ADD COLUMN max_lean_right_deg REAL',

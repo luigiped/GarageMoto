@@ -9,6 +9,7 @@ import {
   setProtectedJsonInAsyncStorage,
 } from './secureStorage'
 import { supabase } from './supabase'
+import { useTripStore } from '../store/tripStore'
 import { protectTripForLocalStorage } from './tripProtection'
 import { createId } from '../utils/id'
 import type { NewTrip, RoutePoint, Trip } from '../types/trip'
@@ -115,14 +116,15 @@ export async function syncAutoTripContext(
   }
 }
 
-export async function finalizeCurrentSession(): Promise<void> {
+export async function finalizeCurrentSession(): Promise<Trip | null> {
   const session = await getAutoTripSession()
   if (!session) {
-    return
+    return null
   }
 
-  await saveSessionTrip(session)
+  const trip = await saveSessionTrip(session)
   await removeProtectedItemFromAsyncStorage(AUTO_TRIP_SESSION_KEY)
+  return trip
 }
 
 export async function getIsAutoTripTaskActive(): Promise<boolean> {
@@ -214,15 +216,15 @@ async function processLocationBatch(
   }
 }
 
-async function saveSessionTrip(session: AutoTripSession): Promise<void> {
+async function saveSessionTrip(session: AutoTripSession): Promise<Trip | null> {
   if (session.points.length < 2) {
-    return
+    return null
   }
 
   const endTs = session.points[session.points.length - 1]?.ts ?? session.lastMovementTs
   const validated = validateTrip(session.points, session.startTs, endTs)
   if (!validated) {
-    return
+    return null
   }
 
   const avgSpeed = session.points.reduce((sum, point) => sum + point.speedKmh, 0) / session.points.length
@@ -243,7 +245,7 @@ async function saveSessionTrip(session: AutoTripSession): Promise<void> {
     route_json: JSON.stringify(session.points),
   }
 
-  await persistTrip(newTrip)
+  return persistTrip(newTrip)
 }
 
 async function persistTrip(data: NewTrip): Promise<Trip> {
@@ -285,6 +287,7 @@ async function persistTrip(data: NewTrip): Promise<Trip> {
     ],
   )
 
+  useTripStore.getState().ingestExternalTrip(trip)
   void pushTripToSupabase(trip)
 
   return trip

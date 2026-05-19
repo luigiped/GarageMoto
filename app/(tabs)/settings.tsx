@@ -187,8 +187,16 @@ export default function SettingsScreen() {
 
   async function handleStopAutoTrip() {
     try {
-      await stopCurrentTrip()
-      Alert.alert('Viaggio chiuso', 'Il viaggio automatico corrente e stato salvato.')
+      const saved = await stopCurrentTrip()
+      Alert.alert(
+        saved ? 'Viaggio chiuso' : 'Nessun viaggio salvato',
+        saved
+          ? 'Il viaggio automatico corrente e stato salvato.'
+          : 'La sessione automatica e stata chiusa ma non aveva dati sufficienti per essere salvata.',
+      )
+      if (saved && activeVehicle?.id) {
+        await loadTrips(activeVehicle.id)
+      }
     } catch {
       Alert.alert('Errore', 'Impossibile fermare il viaggio automatico.')
     }
