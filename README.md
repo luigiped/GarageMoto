@@ -10,6 +10,9 @@
 - Card ultimo rifornimento e ultimo viaggio
 - Accesso rapido alle statistiche complete
 
+  <img width="672" height="1496" alt="WhatsApp Image 2026-05-19 at 13 53 31" src="https://github.com/user-attachments/assets/2cf9adb4-1abf-49a2-a96d-39fdfa7c16b6" />
+
+
 ### 🏍️ Garage
 - Gestione multi-veicolo con foto reale della moto
 - Profilo tecnico completo (marca, modello, anno, cilindrata, serbatoio, carburante)
@@ -22,6 +25,8 @@
 - Filtri storico: Tutto / 1 mese / 3 mesi / 1 anno
 - Export CSV
 
+<img width="672" height="1496" alt="WhatsApp Image 2026-05-19 at 13 54 14" src="https://github.com/user-attachments/assets/fae9267b-5775-468f-a58a-9e7f2e839657" />
+
 ### 🗺️ Viaggi GPS
 - Registrazione percorso con tracciamento GPS live
 - Mappa con polilinea del percorso in tempo reale
@@ -29,6 +34,9 @@
 - Schermo sempre acceso durante la registrazione
 - Dettaglio viaggio con mappa del percorso completo
 - Scarto automatico viaggi troppo brevi (< 500m o < 1 min)
+
+  <img width="919" height="2048" alt="WhatsApp Image 2026-05-19 at 19 13 46" src="https://github.com/user-attachments/assets/8dc0d4c6-220f-4d16-a506-f14c8f36eeea" />
+
 
 ### 📊 Statistiche
 - Grafico lineare km/l nel tempo (solo pieni completi)
