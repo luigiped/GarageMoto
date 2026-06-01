@@ -79,7 +79,10 @@ export default function RootLayout() {
             setSession(data.session)
           }
 
-          const subscription = supabase.auth.onAuthStateChange((_event, session) => {
+          const subscription = supabase.auth.onAuthStateChange((event, session) => {
+            if (event === 'PASSWORD_RECOVERY') {
+              useAuthStore.setState({ isPasswordRecovery: true })
+            }
             setSession(session)
           })
           unsubscribe = () => subscription.data.subscription.unsubscribe()
@@ -143,6 +146,7 @@ export default function RootLayout() {
       <StatusBar style="light" />
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="index" />
+        <Stack.Screen name="reset-password" />
         <Stack.Screen name="(auth)" />
         <Stack.Screen name="(tabs)" />
       </Stack>

@@ -43,6 +43,7 @@ export const SUPABASE_MISSING_CONFIG_MESSAGE =
   'Supabase non configurato: avvio in modalita locale. Inserisci credenziali reali in .env.local per abilitare login e sync.'
 
 export const AUTH_REDIRECT_URL = 'garagemoto://login'
+export const PASSWORD_RESET_REDIRECT_URL = 'garagemoto://reset-password'
 
 export function isInvalidRefreshTokenError(error: unknown): boolean {
   if (!error || typeof error !== 'object') {
@@ -93,6 +94,7 @@ export async function recoverSupabaseSession(error: unknown): Promise<boolean> {
 type AuthRedirectResult = {
   handled: boolean
   success: boolean
+  kind?: 'auth' | 'password-recovery'
   needsLogin?: boolean
   error?: string
 }
@@ -107,6 +109,7 @@ export async function handleSupabaseAuthRedirect(url: string): Promise<AuthRedir
   const type = readStringParam(params, 'type')
   const accessToken = readStringParam(params, 'access_token')
   const refreshToken = readStringParam(params, 'refresh_token')
+  const kind = type === 'recovery' ? 'password-recovery' : 'auth'
 
   if (tokenHash && type) {
     const { data, error } = await supabase.auth.verifyOtp({
@@ -116,7 +119,7 @@ export async function handleSupabaseAuthRedirect(url: string): Promise<AuthRedir
 
     return error
       ? { handled: true, success: false, error: error.message }
-      : { handled: true, success: true, needsLogin: !data.session }
+      : { handled: true, success: true, kind, needsLogin: !data.session }
   }
 
   if (accessToken && refreshToken) {
@@ -127,7 +130,7 @@ export async function handleSupabaseAuthRedirect(url: string): Promise<AuthRedir
 
     return error
       ? { handled: true, success: false, error: error.message }
-      : { handled: true, success: true, needsLogin: !data.session }
+      : { handled: true, success: true, kind, needsLogin: !data.session }
   }
 
   return { handled: false, success: false }
@@ -167,11 +170,13 @@ function isTrustedAuthRedirectUrl(url: string): boolean {
     const parsedUrl = new URL(url)
     const expectedUrl = new URL(AUTH_REDIRECT_URL)
     const normalizedPath = parsedUrl.pathname.replace(/\/+$/, '').toLowerCase()
+    const allowedTargets = ['login', 'reset-password']
+    const hostname = parsedUrl.hostname.toLowerCase()
+    const pathTarget = normalizedPath.replace(/^\//, '')
 
     return (
       parsedUrl.protocol === expectedUrl.protocol &&
-      (parsedUrl.hostname.toLowerCase() === expectedUrl.hostname.toLowerCase() ||
-        normalizedPath === '/login')
+      (allowedTargets.includes(hostname) || allowedTargets.includes(pathTarget))
     )
   } catch {
     return false

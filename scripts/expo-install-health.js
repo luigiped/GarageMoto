@@ -56,8 +56,8 @@ const CHECKS = [
   },
   {
     pkg: '@0no-co/graphql.web',
-    version: '1.2.0',
-    file: 'node_modules/@0no-co/graphql.web/dist/graphql.web.js',
+    version: '1.0.13',
+    file: 'node_modules/@expo/cli/node_modules/@0no-co/graphql.web/dist/graphql.web.js',
   },
 ]
 

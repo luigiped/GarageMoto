@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import type { Session, User } from '@supabase/supabase-js'
 import {
   AUTH_REDIRECT_URL,
+  PASSWORD_RESET_REDIRECT_URL,
   clearSupabaseSession,
   isLocalModeEnabled,
   isSupabaseConfigured,
@@ -13,13 +14,17 @@ interface AuthStore {
   session: Session | null
   user: User | null
   isLoading: boolean
+  isPasswordRecovery: boolean
   error: string | null
   notice: string | null
   // Actions
   signInWithEmail: (email: string, password: string) => Promise<boolean>
   signUpWithEmail: (email: string, password: string) => Promise<boolean>
+  requestPasswordReset: (email: string) => Promise<boolean>
+  updatePassword: (password: string) => Promise<boolean>
   signOut: () => Promise<void>
   setSession: (session: Session | null) => void
+  setPasswordRecovery: (isPasswordRecovery: boolean) => void
   clearError: () => void
   clearNotice: () => void
 }
@@ -44,15 +49,19 @@ export const useAuthStore = create<AuthStore>((set) => ({
   session: null,
   user: isLocalModeEnabled ? LOCAL_TEST_USER : null,
   isLoading: false,
+  isPasswordRecovery: false,
   error: null,
   notice: null,
 
   setSession: (session) =>
-    set({
+    set((state) => ({
       session,
       user: session?.user ?? (isLocalModeEnabled ? LOCAL_TEST_USER : null),
+      isPasswordRecovery: session ? state.isPasswordRecovery : false,
       error: null,
-    }),
+    })),
+
+  setPasswordRecovery: (isPasswordRecovery) => set({ isPasswordRecovery }),
 
   clearError: () => set({ error: null }),
   clearNotice: () => set({ notice: null }),
@@ -71,6 +80,7 @@ export const useAuthStore = create<AuthStore>((set) => ({
     } else {
       set({
         isLoading: false,
+        isPasswordRecovery: false,
         notice: data.user ? 'Accesso eseguito correttamente.' : null,
       })
       return true
@@ -106,6 +116,55 @@ export const useAuthStore = create<AuthStore>((set) => ({
     }
   },
 
+  requestPasswordReset: async (email) => {
+    if (!isSupabaseConfigured || !supabase) {
+      set({ error: SUPABASE_MISSING_CONFIG_MESSAGE, notice: null })
+      return false
+    }
+
+    set({ isLoading: true, error: null, notice: null })
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: PASSWORD_RESET_REDIRECT_URL,
+    })
+
+    if (error) {
+      set({ isLoading: false, error: mapError(error.message), notice: null })
+      return false
+    }
+
+    set({
+      isLoading: false,
+      notice: 'Ti ho inviato il link per reimpostare la password. Aprilo da questo dispositivo.',
+    })
+    return true
+  },
+
+  updatePassword: async (password) => {
+    if (!isSupabaseConfigured || !supabase) {
+      set({ error: SUPABASE_MISSING_CONFIG_MESSAGE, notice: null })
+      return false
+    }
+
+    set({ isLoading: true, error: null, notice: null })
+    const { error } = await supabase.auth.updateUser({ password })
+
+    if (error) {
+      set({ isLoading: false, error: mapError(error.message), notice: null })
+      return false
+    }
+
+    await clearSupabaseSession()
+    set({
+      session: null,
+      user: isLocalModeEnabled ? LOCAL_TEST_USER : null,
+      isLoading: false,
+      isPasswordRecovery: false,
+      error: null,
+      notice: 'Password aggiornata correttamente. Accedi con la nuova password.',
+    })
+    return true
+  },
+
   signOut: async () => {
     set({ isLoading: true })
     if (supabase) {
@@ -114,6 +173,7 @@ export const useAuthStore = create<AuthStore>((set) => ({
     set({
       session: null,
       user: isLocalModeEnabled ? LOCAL_TEST_USER : null,
+      isPasswordRecovery: false,
       isLoading: false,
       notice: null,
       error: null,

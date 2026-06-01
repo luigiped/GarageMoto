@@ -3,13 +3,13 @@ import { useAuthStore } from '../../src/store/authStore'
 import { isSupabaseConfigured } from '../../src/services/supabase'
 
 export default function AuthLayout() {
-  const { session } = useAuthStore()
+  const { session, isPasswordRecovery } = useAuthStore()
 
   if (!isSupabaseConfigured) {
     return <Redirect href="/(tabs)" />
   }
 
-  if (session) {
+  if (session && !isPasswordRecovery) {
     return <Redirect href="/(tabs)" />
   }
 

@@ -21,11 +21,13 @@ export default function LoginScreen() {
   const [isHandlingLink, setIsHandlingLink] = useState(false)
   const {
     signInWithEmail,
+    requestPasswordReset,
     isLoading,
     error,
     notice,
     clearError,
     clearNotice,
+    setPasswordRecovery,
   } = useAuthStore()
 
   useEffect(() => {
@@ -40,6 +42,10 @@ export default function LoginScreen() {
       setIsHandlingLink(true)
       clearError()
       clearNotice()
+      const isRecoveryLink = url.includes('type=recovery')
+      if (isRecoveryLink) {
+        setPasswordRecovery(true)
+      }
 
       try {
         consumed = true
@@ -55,6 +61,18 @@ export default function LoginScreen() {
 
         if (!result.success) {
           setLocalError(result.error ?? 'Conferma email non riuscita.')
+          return
+        }
+
+        if (result.kind === 'password-recovery') {
+          if (result.needsLogin) {
+            setPasswordRecovery(false)
+            setLocalError('Link di reset non valido o scaduto. Richiedine uno nuovo.')
+            return
+          }
+
+          setPasswordRecovery(true)
+          router.replace('/reset-password')
           return
         }
 
@@ -99,7 +117,7 @@ export default function LoginScreen() {
     return () => {
       mounted = false
     }
-  }, [incomingUrl, clearError, clearNotice])
+  }, [incomingUrl, clearError, clearNotice, setPasswordRecovery])
 
   async function handleLogin() {
     setLocalError(null)
@@ -110,6 +128,20 @@ export default function LoginScreen() {
     clearError()
     clearNotice()
     await signInWithEmail(email.trim().toLowerCase(), password)
+  }
+
+  async function handlePasswordResetRequest() {
+    setLocalError(null)
+    clearError()
+    clearNotice()
+
+    const normalizedEmail = email.trim().toLowerCase()
+    if (!normalizedEmail) {
+      setLocalError('Inserisci la tua email, poi richiedi il link di reset.')
+      return
+    }
+
+    await requestPasswordReset(normalizedEmail)
   }
 
   return (
@@ -158,11 +190,17 @@ export default function LoginScreen() {
           secureTextEntry
         />
 
-        <TouchableOpacity style={styles.btn} onPress={handleLogin} disabled={isLoading}>
+        <TouchableOpacity style={styles.btn} onPress={handleLogin} disabled={isLoading || isHandlingLink}>
           {isLoading || isHandlingLink
             ? <ActivityIndicator color="#fff" />
             : <Text style={styles.btnText}>Accedi</Text>
           }
+        </TouchableOpacity>
+
+        <TouchableOpacity style={styles.link} onPress={handlePasswordResetRequest} disabled={isLoading || isHandlingLink}>
+          <Text style={styles.linkText}>
+            Password dimenticata? <Text style={{ color: colors.primary }}>Invia link reset</Text>
+          </Text>
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.link} onPress={() => router.push('/register')}>
@@ -203,7 +241,7 @@ function createStyles(theme: ReturnType<typeof useTheme>) {
       marginTop: spacing.sm,
     },
     btnText:   { color: '#fff', fontWeight: '600', fontSize: font.base },
-    link:      { marginTop: spacing.lg, alignItems: 'center' },
+    link:      { marginTop: spacing.md, alignItems: 'center' },
     linkText:  { color: colors.textSecondary, fontSize: font.md },
     errorBox:  {
       backgroundColor: 'rgba(255,59,48,0.1)',

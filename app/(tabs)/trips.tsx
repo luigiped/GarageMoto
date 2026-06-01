@@ -17,6 +17,13 @@ import type { RoutePoint } from '../../src/types/trip'
 import { formatDate } from '../../src/utils/formatters'
 import { computeMaxBrakingG } from '../../src/utils/tripMetrics'
 import {
+  buildManualTripDraft,
+  clearManualTripDraft,
+  getManualTripDraft,
+  saveManualTripDraft,
+  type ManualTripDraft,
+} from '../../src/services/manualTripDraft'
+import {
   calibrateLeanAngle,
   createLeanAngleSummary,
   hasLeanAngleCalibration,
@@ -41,12 +48,10 @@ export default function TripsScreen() {
 
   const [screen, setScreen] = useState<Screen>('list')
   const [points, setPoints] = useState<RoutePoint[]>([])
-  const [startTs, setStartTs] = useState(0)
   const [elapsed, setElapsed] = useState(0)
   const [currentSpeed, setSpeed] = useState(0)
   const [maxSpeed, setMaxSpeed] = useState(0)
   const [currentLeanAngle, setCurrentLeanAngle] = useState<number | null>(null)
-  const [leanSummary, setLeanSummary] = useState<LeanAngleSummary>(createLeanAngleSummary())
   const [leanCalibrated, setLeanCalibrated] = useState(false)
   const [leanAvailable, setLeanAvailable] = useState<boolean | null>(null)
   const [isCalibratingLean, setIsCalibratingLean] = useState(false)
@@ -58,6 +63,9 @@ export default function TripsScreen() {
   const startTsRef = useRef(0)
   const maxSpeedRef = useRef(0)
   const leanSummaryRef = useRef<LeanAngleSummary>(createLeanAngleSummary())
+  const draftWriteTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const lastDraftPointCountRef = useRef(0)
+  const promptedDraftKeyRef = useRef<string | null>(null)
   const { width } = useWindowDimensions()
   const mapHeight = Math.round(width * 0.68)
   const canRenderMap = hasNativeMapConfig()
@@ -79,6 +87,22 @@ export default function TripsScreen() {
   useEffect(() => {
     void syncLeanStatus()
   }, [])
+
+  useEffect(() => {
+    return () => {
+      if (draftWriteTimeoutRef.current) {
+        clearTimeout(draftWriteTimeoutRef.current)
+      }
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!user?.id || !activeVehicle?.id) {
+      return
+    }
+
+    void promptManualTripRecovery()
+  }, [activeVehicle?.id, user?.id])
 
   useEffect(() => {
     if (screen === 'recording') {
@@ -120,14 +144,14 @@ export default function TripsScreen() {
       pointsRef.current = []
       maxSpeedRef.current = 0
       leanSummaryRef.current = emptySummary
-      setStartTs(ts)
+      lastDraftPointCountRef.current = 0
       setPoints([])
       setSpeed(0)
       setMaxSpeed(0)
       setElapsed(0)
       setCurrentLeanAngle(null)
-      setLeanSummary(emptySummary)
       setScreen('recording')
+      await persistManualDraft(true)
       await startTracking((point) => {
         pointsRef.current = [...pointsRef.current, point]
         setPoints(pointsRef.current)
@@ -140,13 +164,14 @@ export default function TripsScreen() {
         setSpeed(Math.round(point.speedKmh))
         maxSpeedRef.current = Math.max(maxSpeedRef.current, point.speedKmh)
         setMaxSpeed(maxSpeedRef.current)
+        scheduleManualDraftPersist()
       })
       if (leanAvailable && leanCalibrated) {
         await startLeanAngleTracking((sample) => {
           setCurrentLeanAngle(sample.correctedAngleDeg)
           const nextSummary = updateLeanAngleSummary(leanSummaryRef.current, sample.correctedAngleDeg)
           leanSummaryRef.current = nextSummary
-          setLeanSummary(nextSummary)
+          scheduleManualDraftPersist()
         })
       }
     } catch (error) {
@@ -166,6 +191,11 @@ export default function TripsScreen() {
 
     stopTracking()
     stopLeanAngleTracking()
+    if (draftWriteTimeoutRef.current) {
+      clearTimeout(draftWriteTimeoutRef.current)
+      draftWriteTimeoutRef.current = null
+    }
+    await persistManualDraft(true)
     const endTs = Date.now()
     setScreen('list')
     setCurrentLeanAngle(null)
@@ -202,10 +232,139 @@ export default function TripsScreen() {
         max_braking_g: maxBrakingG,
         route_json: JSON.stringify(tripPoints),
       })
+      await clearManualTripDraft()
       Alert.alert('Viaggio salvato', `${validated.distanceKm.toFixed(1)} km`)
     } catch (error) {
       console.error('[trips] saveTrip:', error)
       Alert.alert('Errore salvataggio', 'Non sono riuscito a salvarlo sul dispositivo, quindi non comparira nello storico.')
+    }
+  }
+
+  function scheduleManualDraftPersist() {
+    if (draftWriteTimeoutRef.current) {
+      return
+    }
+
+    draftWriteTimeoutRef.current = setTimeout(() => {
+      draftWriteTimeoutRef.current = null
+      void persistManualDraft(false)
+    }, 1000)
+  }
+
+  async function persistManualDraft(force: boolean) {
+    if (!user?.id || !activeVehicle?.id || !startTsRef.current) {
+      return
+    }
+
+    const pointsCount = pointsRef.current.length
+    if (!force && pointsCount === lastDraftPointCountRef.current) {
+      return
+    }
+
+    lastDraftPointCountRef.current = pointsCount
+    const summary = leanSummaryRef.current
+    await saveManualTripDraft(buildManualTripDraft({
+      userId: user.id,
+      vehicleId: activeVehicle.id,
+      startTs: startTsRef.current,
+      maxSpeedKmh: maxSpeedRef.current,
+      points: pointsRef.current,
+      maxLeanAngleDeg: summary.maxLeanAngleDeg || null,
+      maxLeanLeftDeg: summary.maxLeanLeftDeg || null,
+      maxLeanRightDeg: summary.maxLeanRightDeg || null,
+    })).catch((error) => {
+      console.warn('[trips] save manual draft:', error)
+    })
+  }
+
+  async function promptManualTripRecovery() {
+    const draft = await getManualTripDraft().catch((error) => {
+      console.warn('[trips] read manual draft:', error)
+      return null
+    })
+
+    if (!draft || draft.userId !== user?.id || draft.vehicleId !== activeVehicle?.id) {
+      return
+    }
+
+    const draftKey = `${draft.vehicleId}:${draft.startTs}:${draft.points.length}`
+    if (promptedDraftKeyRef.current === draftKey) {
+      return
+    }
+    promptedDraftKeyRef.current = draftKey
+
+    Alert.alert(
+      'Viaggio interrotto trovato',
+      `Ho trovato una bozza manuale del ${formatDate(new Date(draft.startTs).toISOString().slice(0, 10))} con ${draft.points.length} punti GPS. Vuoi provare a salvarla?`,
+      [
+        {
+          text: 'Elimina',
+          style: 'destructive',
+          onPress: () => {
+            void clearManualTripDraft()
+          },
+        },
+        {
+          text: 'Salva',
+          onPress: () => {
+            void recoverManualTripDraft(draft)
+          },
+        },
+      ],
+    )
+  }
+
+  async function recoverManualTripDraft(draft: ManualTripDraft) {
+    if (!user?.id || !activeVehicle?.id) {
+      return
+    }
+
+    const endTs = draft.points[draft.points.length - 1]?.ts ?? draft.updatedTs
+    const validated = validateTrip(draft.points, draft.startTs, endTs, MANUAL_TRIP_VALIDATION)
+
+    if (!validated) {
+      Alert.alert(
+        'Bozza non salvabile',
+        'La bozza non contiene abbastanza punti GPS validi per creare un viaggio.',
+        [
+          { text: 'Mantieni', style: 'cancel' },
+          {
+            text: 'Elimina',
+            style: 'destructive',
+            onPress: () => {
+              void clearManualTripDraft()
+            },
+          },
+        ],
+      )
+      return
+    }
+
+    const avgSpeed = draft.points.reduce((sum, point) => sum + point.speedKmh, 0) / draft.points.length
+    const maxBrakingG = computeMaxBrakingG(draft.points)
+
+    try {
+      await saveTrip({
+        user_id: user.id,
+        vehicle_id: activeVehicle.id,
+        start_time: new Date(draft.startTs).toISOString(),
+        end_time: new Date(endTs).toISOString(),
+        distance_km: validated.distanceKm,
+        duration_minutes: validated.durationMinutes,
+        avg_speed_kmh: Math.round(avgSpeed * 10) / 10,
+        max_speed_kmh: Math.round(draft.maxSpeedKmh * 10) / 10,
+        max_lean_angle_deg: draft.maxLeanAngleDeg,
+        max_lean_left_deg: draft.maxLeanLeftDeg,
+        max_lean_right_deg: draft.maxLeanRightDeg,
+        max_braking_g: maxBrakingG,
+        route_json: JSON.stringify(draft.points),
+      })
+      await clearManualTripDraft()
+      await loadTrips(activeVehicle.id)
+      Alert.alert('Viaggio recuperato', `${validated.distanceKm.toFixed(1)} km salvati nello storico.`)
+    } catch (error) {
+      console.error('[trips] recover manual draft:', error)
+      Alert.alert('Recupero non riuscito', 'La bozza e rimasta salvata. Riprova piu tardi.')
     }
   }
 
@@ -442,7 +601,7 @@ export default function TripsScreen() {
               <ActionButton label="Inizia viaggio" onPress={() => { void handleStart() }} />
             )}
             <Text style={styles.noteText}>
-              Per l'angolo di piega il telefono deve essere montato verticalmente sul manubrio e calibrato prima del primo uso.
+              Per l&apos;angolo di piega il telefono deve essere montato verticalmente sul manubrio e calibrato prima del primo uso.
             </Text>
           </Panel>
 
