@@ -13,16 +13,18 @@ import { useRefuelStore } from '../../src/store/refuelStore'
 import { useVehicleStore } from '../../src/store/vehicleStore'
 import { useTheme } from '../../src/useTheme'
 import type { Refuel } from '../../src/types/refuel'
+import { firstDayOfLastNMonthsISO } from '../../src/utils/dateRanges'
 import { averageConsumption } from '../../src/utils/fuelCalculator'
 import { formatDate, formatEuro, todayISO } from '../../src/utils/formatters'
 import { parseReceiptText } from '../../src/utils/receiptParser'
 
-type Period = 'all' | '1m' | '3m' | '1y'
+type Period = 'all' | '1m' | '3m' | '6m' | '1y'
 
 const PERIODS: { value: Period; label: string }[] = [
   { value: 'all', label: 'Tutto' },
   { value: '1m', label: '1 mese' },
   { value: '3m', label: '3 mesi' },
+  { value: '6m', label: '6 mesi' },
   { value: '1y', label: '1 anno' },
 ]
 
@@ -211,8 +213,8 @@ export default function RefuelsScreen() {
     setHighlightedFields({ date: false, liters: false, amount: false })
   }
 
-  const avg = averageConsumption(refuels)
   const filtered = filterByPeriod(refuels, period)
+  const avg = averageConsumption(filtered)
   const totalSpend = filtered.reduce((sum, item) => sum + item.amount_eur, 0)
   const partialCount = filtered.filter((item) => !item.is_full_tank).length
 
@@ -414,8 +416,8 @@ function filterByPeriod(refuels: Refuel[], period: Period): Refuel[] {
   if (period === 'all') {
     return refuels
   }
-  const days = period === '1m' ? 31 : period === '3m' ? 92 : 365
-  const cutoff = new Date(Date.now() - days * 86400000).toISOString().split('T')[0]
+  const months = period === '1m' ? 1 : period === '3m' ? 3 : period === '6m' ? 6 : 12
+  const cutoff = firstDayOfLastNMonthsISO(months)
   return refuels.filter((item) => item.date >= cutoff)
 }
 

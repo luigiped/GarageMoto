@@ -19,6 +19,7 @@ import { MAINTENANCE_LABELS, type Maintenance } from '../../src/types/maintenanc
 import type { Refuel } from '../../src/types/refuel'
 import type { Trip } from '../../src/types/trip'
 import type { Vehicle } from '../../src/types/vehicle'
+import { firstDayOfLastNMonthsISO, lastNMonthKeys } from '../../src/utils/dateRanges'
 import { averageConsumption, currentMonthSpending, estimatedFuelPct, estimatedRange } from '../../src/utils/fuelCalculator'
 import { formatDate, formatEuro, formatLiters } from '../../src/utils/formatters'
 import { getStatus } from '../../src/utils/maintenanceChecker'
@@ -300,6 +301,9 @@ function GlassDashboard({
   const glassStyles = createGlassStyles(theme)
   const recentTrips = trips.slice(0, 3)
   const monthlyBars = useMemo(() => buildMonthlySpendBars(refuels), [refuels])
+  const costPeriodRefuels = useMemo(() => filterRefuelsForLastMonths(refuels, 6), [refuels])
+  const costPeriodSpend = costPeriodRefuels.reduce((sum, item) => sum + item.amount_eur, 0)
+  const costPeriodAvg = averageConsumption(costPeriodRefuels)
   const leanLeaderboard = useMemo(() => buildLeanLeaderboard(trips, theme.colors), [theme.colors, trips])
   const serviceLabel = isOverdue ? 'Service urgente' : warning.length > 0 ? 'Service vicino' : 'Moto in ordine'
   const topMaintenance = [...overdue, ...warning, ...maintenance.filter((item) => getStatus(item, currentKm) === 'ok')][0]
@@ -450,8 +454,8 @@ function GlassDashboard({
             meta="Analisi rapida"
             stats={[
               { value: formatEuro(monthSpend), label: 'mese corrente' },
-              { value: refuels.length > 0 ? formatEuro(refuels.reduce((sum, item) => sum + item.amount_eur, 0)) : formatEuro(0), label: 'totale' },
-              { value: avg != null ? `${avg.toFixed(1)} km/l` : '--', label: 'efficienza' },
+              { value: formatEuro(costPeriodSpend), label: 'ultimi 6 mesi' },
+              { value: costPeriodAvg != null ? `${costPeriodAvg.toFixed(1)} km/l` : '--', label: 'efficienza 6 mesi' },
             ]}
           />
         </>
@@ -583,11 +587,10 @@ function GlassInfoCard({
 }
 
 function buildMonthlySpendBars(refuels: Refuel[]) {
-  const months = Array.from({ length: 6 }, (_, index) => {
-    const date = new Date()
-    date.setMonth(date.getMonth() - (5 - index))
-    const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
-    return { key, label: date.toLocaleDateString('it-IT', { month: 'short' }) }
+  const months = lastNMonthKeys(6).map((key) => {
+    const [year, month] = key.split('-').map(Number)
+    const label = new Date(year, month - 1, 1).toLocaleDateString('it-IT', { month: 'short' })
+    return { key, label }
   })
 
   const values = months.map((month, index) => {
@@ -606,6 +609,11 @@ function buildMonthlySpendBars(refuels: Refuel[]) {
     ...item,
     heightPct: Math.max(8, Math.round((item.total / max) * 100)),
   }))
+}
+
+function filterRefuelsForLastMonths(refuels: Refuel[], monthCount: number): Refuel[] {
+  const cutoff = firstDayOfLastNMonthsISO(monthCount)
+  return refuels.filter((item) => item.date >= cutoff)
 }
 
 function buildLeanLeaderboard(trips: Trip[], colors: ReturnType<typeof useTheme>['colors']) {

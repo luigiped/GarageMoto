@@ -1,6 +1,7 @@
 // R1.1
 import type { Refuel } from '../types/refuel'
 import type { Trip } from '../types/trip'
+import { lastNMonthKeys, toLocalISODate } from './dateRanges'
 import { averageConsumption } from './fuelCalculator'
 
 /** Raggruppa spesa per mese → { '2026-05': 127.50 } */
@@ -59,8 +60,8 @@ export function periodSummary(
   avgKmL: number | null
   tripCount: number
 } {
-  const fromStr = from.toISOString().split('T')[0]
-  const toStr   = to.toISOString().split('T')[0]
+  const fromStr = toLocalISODate(from)
+  const toStr   = toLocalISODate(to)
 
   const filteredR = refuels.filter(r => r.date >= fromStr && r.date <= toStr)
   const filteredT = trips.filter(t => t.start_time.slice(0, 10) >= fromStr &&
@@ -76,14 +77,8 @@ export function periodSummary(
 }
 
 /** Ultimi N mesi come array di chiavi YYYY-MM, dal più vecchio al più recente */
-export function lastNMonths(n: number): string[] {
-  const result: string[] = []
-  const now = new Date()
-  for (let i = n - 1; i >= 0; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
-    result.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`)
-  }
-  return result
+export function lastNMonths(n: number, reference = new Date()): string[] {
+  return lastNMonthKeys(n, reference)
 }
 
 /** Etichetta breve per un mese YYYY-MM → "mag '26" */

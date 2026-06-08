@@ -9,6 +9,7 @@ import { useTripStore } from '../src/store/tripStore'
 import { useVehicleStore } from '../src/store/vehicleStore'
 import { useTheme } from '../src/useTheme'
 import { formatEuro } from '../src/utils/formatters'
+import { firstDayOfLastNMonths, toLocalISODate } from '../src/utils/dateRanges'
 import {
   consumptionSeries,
   lastNMonths,
@@ -49,13 +50,14 @@ export default function StatisticsScreen() {
     )
   }
 
-  const days = period === '1M' ? 31 : period === '3M' ? 92 : period === '6M' ? 183 : period === '1A' ? 365 : 9999
-  const cutoff = period === 'Tutto' ? new Date(0) : new Date(Date.now() - days * 86400000)
-  const cutoffStr = cutoff.toISOString().split('T')[0]
+  const now = new Date()
+  const monthsInPeriod = period === '1M' ? 1 : period === '3M' ? 3 : period === '6M' ? 6 : 12
+  const cutoff = period === 'Tutto' ? new Date(0) : firstDayOfLastNMonths(monthsInPeriod, now)
+  const cutoffStr = toLocalISODate(cutoff)
   const filteredR = period === 'Tutto' ? refuels : refuels.filter((item) => item.date >= cutoffStr)
   const filteredT = period === 'Tutto' ? trips : trips.filter((item) => item.start_time.slice(0, 10) >= cutoffStr)
-  const summary = periodSummary(filteredR, filteredT, cutoff, new Date())
-  const monthKeys = lastNMonths(period === 'Tutto' ? 12 : period === '1A' ? 12 : period === '6M' ? 6 : period === '3M' ? 3 : 1)
+  const summary = periodSummary(refuels, trips, cutoff, now)
+  const monthKeys = lastNMonths(period === 'Tutto' ? 12 : monthsInPeriod, now)
 
   const kmlPoints = consumptionSeries(filteredR).slice(-8).map((point) => ({ label: point.date.slice(5), value: parseFloat(point.value.toFixed(1)) }))
   const fuelPricePoints = priceSeries(filteredR).slice(-8).map((point) => ({ label: point.date.slice(5), value: parseFloat(point.value.toFixed(3)) }))

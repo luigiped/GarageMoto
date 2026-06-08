@@ -92,30 +92,30 @@ describe('consumptionSeries', () => {
 
 describe('periodSummary', () => {
   it('filtra correttamente per date', () => {
-    const from = new Date('2026-05-01')
-    const to   = new Date('2026-05-31')
+    const from = new Date(2026, 4, 1)
+    const to   = new Date(2026, 4, 31)
     const refuels = [
       makeRefuel({ date: '2026-05-10', amount_eur: 30, liters: 15 }),
+      makeRefuel({ date: '2026-05-31', amount_eur: 20, liters: 10 }),
       makeRefuel({ date: '2026-04-10', amount_eur: 50, liters: 20 }), // fuori range
+      makeRefuel({ date: '2026-06-01', amount_eur: 60, liters: 25 }), // fuori range
     ]
     const trips = [
       makeTrip({ start_time: '2026-05-10T10:00:00Z', distance_km: 100 }),
+      makeTrip({ start_time: '2026-05-31T10:00:00Z', distance_km: 40 }),
       makeTrip({ start_time: '2026-04-05T10:00:00Z', distance_km: 200 }), // fuori range
     ]
     const result = periodSummary(refuels, trips, from, to)
-    expect(result.totalEur).toBeCloseTo(30)
-    expect(result.totalLiters).toBeCloseTo(15)
-    expect(result.totalKm).toBeCloseTo(100)
-    expect(result.tripCount).toBe(1)
+    expect(result.totalEur).toBeCloseTo(50)
+    expect(result.totalLiters).toBeCloseTo(25)
+    expect(result.totalKm).toBeCloseTo(140)
+    expect(result.tripCount).toBe(2)
   })
 })
 
 describe('lastNMonths', () => {
   it('restituisce N mesi in ordine dal più vecchio', () => {
-    const months = lastNMonths(3)
-    expect(months).toHaveLength(3)
-    expect(months[0] < months[1]).toBe(true)
-    expect(months[1] < months[2]).toBe(true)
+    expect(lastNMonths(3, new Date(2026, 5, 8))).toEqual(['2026-04', '2026-05', '2026-06'])
   })
 })
 

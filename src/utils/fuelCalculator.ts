@@ -1,4 +1,5 @@
 import type { Refuel } from '../types/refuel'
+import { firstDayOfMonth, toLocalISODate } from './dateRanges'
 
 /** km/l dell'ultimo pieno completo. null se parziale o dati invalidi. */
 export function lastFillConsumption(
@@ -69,11 +70,8 @@ export function costPerKm(amountEur: number, kmDriven: number): number | null {
 }
 
 /** Spesa totale del mese corrente. */
-export function currentMonthSpending(refuels: Refuel[]): number {
-  const now = new Date()
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
-    .toISOString()
-    .split('T')[0]
+export function currentMonthSpending(refuels: Refuel[], reference = new Date()): number {
+  const monthStart = toLocalISODate(firstDayOfMonth(reference))
 
   return refuels
     .filter(r => r.date >= monthStart)

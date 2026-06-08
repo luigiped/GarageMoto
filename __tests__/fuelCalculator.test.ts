@@ -103,13 +103,11 @@ describe('costPerKm', () => {
 
 describe('currentMonthSpending', () => {
   it('somma solo rifornimenti del mese corrente', () => {
-    const today = new Date().toISOString().split('T')[0]
-    const lastYear = `${new Date().getFullYear() - 1}-01-01`
     const refuels = [
-      makeRefuel({ date: today, amount_eur: 30 }),
-      makeRefuel({ date: today, amount_eur: 25 }),
-      makeRefuel({ date: lastYear, amount_eur: 100 }),
+      makeRefuel({ date: '2026-06-01', amount_eur: 30 }),
+      makeRefuel({ date: '2026-06-08', amount_eur: 25 }),
+      makeRefuel({ date: '2026-05-31', amount_eur: 100 }),
     ]
-    expect(currentMonthSpending(refuels)).toBe(55)
+    expect(currentMonthSpending(refuels, new Date(2026, 5, 8))).toBe(55)
   })
 })
