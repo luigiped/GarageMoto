@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import { Image, Modal, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
 import { router, useFocusEffect } from 'expo-router'
 import type { Href } from 'expo-router'
 import { ActionButton } from '../../src/components/ui/ActionButton'
@@ -13,6 +13,7 @@ import { useMaintenanceStore } from '../../src/store/maintenanceStore'
 import { useRefuelStore } from '../../src/store/refuelStore'
 import { useTripStore } from '../../src/store/tripStore'
 import { useVehicleStore } from '../../src/store/vehicleStore'
+import { getCurrentOdometerKm, saveCurrentOdometerKm } from '../../src/services/currentOdometerStore'
 import { getVehicleImageUri } from '../../src/services/vehicleImageStore'
 import { useTheme } from '../../src/useTheme'
 import { MAINTENANCE_LABELS, type Maintenance } from '../../src/types/maintenance'
@@ -20,7 +21,8 @@ import type { Refuel } from '../../src/types/refuel'
 import type { Trip } from '../../src/types/trip'
 import type { Vehicle } from '../../src/types/vehicle'
 import { firstDayOfLastNMonthsISO, lastNMonthKeys } from '../../src/utils/dateRanges'
-import { averageConsumption, currentMonthSpending, estimatedFuelPct, estimatedRange } from '../../src/utils/fuelCalculator'
+import { averageConsumption, currentFuelRange, currentMonthSpending, estimatedFuelPct } from '../../src/utils/fuelCalculator'
+import type { CurrentFuelRange } from '../../src/utils/fuelCalculator'
 import { formatDate, formatEuro, formatLiters } from '../../src/utils/formatters'
 import { getStatus } from '../../src/utils/maintenanceChecker'
 
@@ -38,6 +40,11 @@ export default function DashboardScreen() {
   const { trips, loadTrips } = useTripStore()
   const [viewMode, setViewMode] = useState<GlassViewMode>('overview')
   const [vehicleImageUri, setVehicleImageUri] = useState<string | null>(null)
+  const [manualCurrentOdometerKm, setManualCurrentOdometerKm] = useState<number | null>(null)
+  const [isOdometerModalVisible, setIsOdometerModalVisible] = useState(false)
+  const [odometerInput, setOdometerInput] = useState('')
+  const [odometerError, setOdometerError] = useState<string | null>(null)
+  const [isSavingOdometer, setIsSavingOdometer] = useState(false)
 
   const loadVehicleImage = useCallback(async () => {
     if (!activeVehicle?.id) {
@@ -64,6 +71,21 @@ export default function DashboardScreen() {
     void loadTrips(activeVehicle.id)
   }, [activeVehicle?.id, loadMaintenance, loadRefuels, loadTrips])
 
+  const loadCurrentOdometer = useCallback(async () => {
+    if (!activeVehicle?.id) {
+      setManualCurrentOdometerKm(null)
+      return
+    }
+
+    try {
+      const saved = await getCurrentOdometerKm(activeVehicle.id)
+      setManualCurrentOdometerKm(saved?.odometerKm ?? null)
+    } catch (error) {
+      console.error('[dashboard] current odometer:', error)
+      setManualCurrentOdometerKm(null)
+    }
+  }, [activeVehicle?.id])
+
   useEffect(() => {
     if (user?.id) {
       void loadVehicles(user.id)
@@ -78,11 +100,16 @@ export default function DashboardScreen() {
     void loadVehicleImage()
   }, [loadVehicleImage])
 
+  useEffect(() => {
+    void loadCurrentOdometer()
+  }, [loadCurrentOdometer])
+
   useFocusEffect(
     useCallback(() => {
       reloadVehicleData()
       void loadVehicleImage()
-    }, [loadVehicleImage, reloadVehicleData]),
+      void loadCurrentOdometer()
+    }, [loadCurrentOdometer, loadVehicleImage, reloadVehicleData]),
   )
 
   if (!activeVehicle) {
@@ -103,49 +130,105 @@ export default function DashboardScreen() {
     )
   }
 
-  const currentKm = refuels[0]?.odometer_km ?? activeVehicle.odometer_start_km
+  const latestKnownOdometerKm = Math.max(
+    activeVehicle.odometer_start_km,
+    ...refuels.map((item) => item.odometer_km),
+  )
   const avg = averageConsumption(refuels)
   const lastKml = refuels[0]?.km_per_liter ?? null
-  const range = estimatedRange(activeVehicle.tank_capacity_l, refuels, currentKm)
-  const lastFullRefuel = refuels.find((item) => item.is_full_tank)
+  const fuelRange = currentFuelRange(activeVehicle.tank_capacity_l, refuels, trips, manualCurrentOdometerKm)
+  const validManualCurrentOdometerKm =
+    typeof manualCurrentOdometerKm === 'number' &&
+    Number.isFinite(manualCurrentOdometerKm) &&
+    manualCurrentOdometerKm >= latestKnownOdometerKm
+      ? manualCurrentOdometerKm
+      : null
+  const currentKm = validManualCurrentOdometerKm ?? latestKnownOdometerKm
+  const range = fuelRange.estimatedRangeKm
+  const lastFullRefuel = fuelRange.lastFullRefuel ?? refuels.find((item) => item.is_full_tank)
   const fuelPct = avg != null && range != null
     ? Math.round(estimatedFuelPct(activeVehicle.tank_capacity_l, range, avg) * 100)
     : null
-  const estimatedLitersLeft = avg != null && avg > 0 && range != null
-    ? Math.max(0, range / avg)
-    : null
+  const estimatedLitersLeft = fuelRange.estimatedLitersLeft
   const monthSpend = currentMonthSpending(refuels)
   const lastRefuel = refuels[0]
   const lastTrip = trips[0]
   const overdue = maintenance.filter((item) => getStatus(item, currentKm) === 'overdue')
   const warning = maintenance.filter((item) => getStatus(item, currentKm) === 'warning')
   const isOverdue = overdue.length > 0
+  const openOdometerModal = () => {
+    setOdometerInput(String(Math.round(currentKm)))
+    setOdometerError(null)
+    setIsOdometerModalVisible(true)
+  }
+  const closeOdometerModal = () => {
+    setIsOdometerModalVisible(false)
+    setOdometerError(null)
+    setIsSavingOdometer(false)
+  }
+  const saveCurrentOdometer = async () => {
+    const parsed = Number(odometerInput.replace(',', '.'))
+    const minimumOdometer = latestKnownOdometerKm
+
+    if (!Number.isFinite(parsed)) {
+      setOdometerError('Inserisci un numero valido.')
+      return
+    }
+    if (parsed < minimumOdometer) {
+      setOdometerError(`Inserisci un valore pari o superiore a ${minimumOdometer.toLocaleString('it-IT')} km.`)
+      return
+    }
+
+    try {
+      setIsSavingOdometer(true)
+      await saveCurrentOdometerKm(activeVehicle.id, parsed)
+      setManualCurrentOdometerKm(parsed)
+      closeOdometerModal()
+    } catch (error) {
+      console.error('[dashboard] save current odometer:', error)
+      setOdometerError('Errore salvataggio odometro.')
+      setIsSavingOdometer(false)
+    }
+  }
 
   if (designPreset === 'glass') {
     return (
-      <GlassDashboard
-        theme={theme}
-        activeVehicle={activeVehicle}
-        avg={avg}
-        currentKm={currentKm}
-        estimatedLitersLeft={estimatedLitersLeft}
-        fuelPct={fuelPct}
-        isOverdue={isOverdue}
-        lastKml={lastKml}
-        lastFullRefuel={lastFullRefuel}
-        lastRefuel={lastRefuel}
-        lastTrip={lastTrip}
-        maintenance={maintenance}
-        monthSpend={monthSpend}
-        overdue={overdue}
-        range={range}
-        refuels={refuels}
-        trips={trips}
-        vehicleImageUri={vehicleImageUri}
-        viewMode={viewMode}
-        warning={warning}
-        onChangeMode={setViewMode}
-      />
+      <>
+        <GlassDashboard
+          theme={theme}
+          activeVehicle={activeVehicle}
+          avg={avg}
+          currentKm={currentKm}
+          estimatedLitersLeft={estimatedLitersLeft}
+          fuelRange={fuelRange}
+          fuelPct={fuelPct}
+          isOverdue={isOverdue}
+          lastKml={lastKml}
+          lastFullRefuel={lastFullRefuel}
+          lastRefuel={lastRefuel}
+          lastTrip={lastTrip}
+          maintenance={maintenance}
+          monthSpend={monthSpend}
+          overdue={overdue}
+          range={range}
+          refuels={refuels}
+          trips={trips}
+          vehicleImageUri={vehicleImageUri}
+          viewMode={viewMode}
+          warning={warning}
+          onChangeMode={setViewMode}
+          onOpenOdometerModal={openOdometerModal}
+        />
+        <CurrentOdometerModal
+          error={odometerError}
+          inputValue={odometerInput}
+          isSaving={isSavingOdometer}
+          visible={isOdometerModalVisible}
+          onCancel={closeOdometerModal}
+          onChangeInput={setOdometerInput}
+          onSave={saveCurrentOdometer}
+        />
+      </>
     )
   }
 
@@ -195,6 +278,8 @@ export default function DashboardScreen() {
         <MetricTile label="Autonomia" value={range != null ? `${Math.round(range)} km` : '--'} tone="info" />
         <MetricTile label="Spesa mese" value={formatEuro(monthSpend)} tone="warning" />
       </View>
+
+      <CurrentFuelPanel fuelRange={fuelRange} onOpenOdometerModal={openOdometerModal} />
 
       <Panel
         title="Serbatoio stimato"
@@ -249,6 +334,16 @@ export default function DashboardScreen() {
         <ActionButton label="Vedi statistiche complete" variant="secondary" onPress={() => router.push('/statistics')} />
         <ActionButton label="Apri performance bonus" variant="warning" onPress={() => router.push(PERFORMANCE_ROUTE)} />
       </View>
+
+      <CurrentOdometerModal
+        error={odometerError}
+        inputValue={odometerInput}
+        isSaving={isSavingOdometer}
+        visible={isOdometerModalVisible}
+        onCancel={closeOdometerModal}
+        onChangeInput={setOdometerInput}
+        onSave={saveCurrentOdometer}
+      />
     </AppScreen>
   )
 }
@@ -259,6 +354,7 @@ function GlassDashboard({
   avg,
   currentKm,
   estimatedLitersLeft,
+  fuelRange,
   fuelPct,
   isOverdue,
   lastKml,
@@ -275,12 +371,14 @@ function GlassDashboard({
   viewMode,
   warning,
   onChangeMode,
+  onOpenOdometerModal,
 }: {
   theme: ReturnType<typeof useTheme>
   activeVehicle: Vehicle
   avg: number | null
   currentKm: number
   estimatedLitersLeft: number | null
+  fuelRange: CurrentFuelRange
   fuelPct: number | null
   isOverdue: boolean
   lastKml: number | null
@@ -297,6 +395,7 @@ function GlassDashboard({
   viewMode: GlassViewMode
   warning: Maintenance[]
   onChangeMode: (mode: GlassViewMode) => void
+  onOpenOdometerModal: () => void
 }) {
   const glassStyles = createGlassStyles(theme)
   const recentTrips = trips.slice(0, 3)
@@ -385,6 +484,8 @@ function GlassDashboard({
               ]}
             />
           ) : null}
+
+          <GlassCurrentFuelCard fuelRange={fuelRange} onOpenOdometerModal={onOpenOdometerModal} />
 
           <GlassInfoCard
             title="Fuel stimato"
@@ -510,6 +611,143 @@ function formatMaintenanceLabel(item: Maintenance | undefined): string {
   return item.label?.trim() || MAINTENANCE_LABELS[item.type]
 }
 
+function formatFuelRangeValue(value: number | null): string {
+  return value != null ? `${Math.round(value).toLocaleString('it-IT')} km` : '--'
+}
+
+function getFuelRangeSourceLabel(fuelRange: CurrentFuelRange): string {
+  if (fuelRange.source === 'manual_odometer') return 'Odometro manuale'
+  if (fuelRange.source === 'gps') return 'Stima GPS'
+  if (fuelRange.source === 'last_refuel') return 'Ultimo rifornimento'
+  return 'Dati insufficienti'
+}
+
+function CurrentFuelPanel({
+  fuelRange,
+  onOpenOdometerModal,
+}: {
+  fuelRange: CurrentFuelRange
+  onOpenOdometerModal: () => void
+}) {
+  const theme = useTheme()
+  const styles = createStyles(theme)
+  const subtitle = fuelRange.lastFullRefuel
+    ? `Dal pieno del ${formatDate(fuelRange.lastFullRefuel.date)}.`
+    : 'Registra almeno due pieni completi per calcolare il periodo corrente.'
+
+  return (
+    <Panel title="Periodo corrente" subtitle={subtitle} tone={fuelRange.isEstimate ? 'warning' : 'info'}>
+      <View style={styles.currentFuelHeader}>
+        <StatusPill
+          label={getFuelRangeSourceLabel(fuelRange)}
+          tone={fuelRange.isEstimate ? 'warning' : fuelRange.source === 'manual_odometer' ? 'success' : 'info'}
+        />
+        {fuelRange.isEstimate ? <Text style={styles.estimateHint}>Dato stimato dai trip GPS</Text> : null}
+      </View>
+      <View style={styles.statRow}>
+        <Stat value={formatFuelRangeValue(fuelRange.kmSinceLastFull)} label="km dall'ultimo pieno" />
+        <Stat value={fuelRange.averageKmPerLiter != null ? `${fuelRange.averageKmPerLiter.toFixed(1)} km/l` : '--'} label="consumo medio" />
+        <Stat value={formatFuelRangeValue(fuelRange.estimatedRangeKm)} label="autonomia residua" />
+      </View>
+      <View style={styles.currentFuelAction}>
+        <ActionButton label="Aggiorna odometro" variant="secondary" onPress={onOpenOdometerModal} />
+      </View>
+    </Panel>
+  )
+}
+
+function GlassCurrentFuelCard({
+  fuelRange,
+  onOpenOdometerModal,
+}: {
+  fuelRange: CurrentFuelRange
+  onOpenOdometerModal: () => void
+}) {
+  const glassStyles = createGlassStyles(useTheme())
+  const meta = fuelRange.lastFullRefuel
+    ? `dal pieno ${formatDate(fuelRange.lastFullRefuel.date)}`
+    : 'dati insufficienti'
+
+  return (
+    <View style={glassStyles.infoCard}>
+      <View style={glassStyles.infoCardHeader}>
+        <Text style={glassStyles.infoCardTitle}>Periodo corrente</Text>
+        <Text style={glassStyles.infoCardDate}>{getFuelRangeSourceLabel(fuelRange)}</Text>
+      </View>
+      <View style={glassStyles.infoStatsRow}>
+        <View style={glassStyles.infoStatItem}>
+          <Text style={glassStyles.infoStatValue}>{formatFuelRangeValue(fuelRange.kmSinceLastFull)}</Text>
+          <Text style={glassStyles.infoStatLabel}>km dal pieno</Text>
+        </View>
+        <View style={glassStyles.infoStatItem}>
+          <Text style={glassStyles.infoStatValue}>
+            {fuelRange.averageKmPerLiter != null ? `${fuelRange.averageKmPerLiter.toFixed(1)} km/l` : '--'}
+          </Text>
+          <Text style={glassStyles.infoStatLabel}>media</Text>
+        </View>
+        <View style={glassStyles.infoStatItem}>
+          <Text style={glassStyles.infoStatValue}>{formatFuelRangeValue(fuelRange.estimatedRangeKm)}</Text>
+          <Text style={glassStyles.infoStatLabel}>autonomia</Text>
+        </View>
+      </View>
+      <Text style={glassStyles.infoNote}>
+        {fuelRange.isEstimate
+          ? `Stima da trip GPS, ${meta}.`
+          : `Calcolo basato sull'odometro, ${meta}.`}
+      </Text>
+      <TouchableOpacity style={glassStyles.inlineActionButton} onPress={onOpenOdometerModal}>
+        <Text style={glassStyles.inlineActionText}>Aggiorna odometro</Text>
+      </TouchableOpacity>
+    </View>
+  )
+}
+
+function CurrentOdometerModal({
+  error,
+  inputValue,
+  isSaving,
+  visible,
+  onCancel,
+  onChangeInput,
+  onSave,
+}: {
+  error: string | null
+  inputValue: string
+  isSaving: boolean
+  visible: boolean
+  onCancel: () => void
+  onChangeInput: (value: string) => void
+  onSave: () => void
+}) {
+  const theme = useTheme()
+  const styles = createStyles(theme)
+
+  return (
+    <Modal animationType="fade" transparent visible={visible} onRequestClose={onCancel}>
+      <View style={styles.modalOverlay}>
+        <View style={styles.modalCard}>
+          <Text style={styles.modalTitle}>Odometro attuale</Text>
+          <Text style={styles.modalText}>Inserisci i km letti dalla moto. Questo valore viene usato al posto dei trip GPS.</Text>
+          <TextInput
+            style={styles.modalInput}
+            value={inputValue}
+            keyboardType="numeric"
+            placeholder="Km odometro"
+            placeholderTextColor={theme.colors.textMuted}
+            onChangeText={onChangeInput}
+            onSubmitEditing={onSave}
+          />
+          {error ? <Text style={styles.modalError}>{error}</Text> : null}
+          <View style={styles.modalActions}>
+            <ActionButton label="Annulla" variant="secondary" disabled={isSaving} onPress={onCancel} />
+            <ActionButton label="Salva" loading={isSaving} onPress={onSave} />
+          </View>
+        </View>
+      </View>
+    </Modal>
+  )
+}
+
 function GlassMetricCard({
   accent = false,
   icon,
@@ -563,7 +801,7 @@ function GlassInfoCard({
 }: {
   meta: string
   note?: string
-  stats: Array<{ value: string; label: string }>
+  stats: { value: string; label: string }[]
   title: string
 }) {
   const glassStyles = createGlassStyles(useTheme())
@@ -732,6 +970,22 @@ function createStyles(theme: ReturnType<typeof useTheme>) {
     actionStack: {
       gap: spacing.sm,
     },
+    currentFuelHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: spacing.sm,
+      marginBottom: spacing.sm,
+      flexWrap: 'wrap',
+    },
+    currentFuelAction: {
+      marginTop: spacing.md,
+    },
+    estimateHint: {
+      color: colors.warning,
+      fontSize: font.sm,
+      fontWeight: '700',
+    },
     fuelHeroRow: {
       flexDirection: 'row',
       justifyContent: 'space-between',
@@ -755,6 +1009,53 @@ function createStyles(theme: ReturnType<typeof useTheme>) {
       color: colors.textSecondary,
       fontSize: font.base,
       lineHeight: 22,
+    },
+    modalOverlay: {
+      flex: 1,
+      justifyContent: 'center',
+      padding: spacing.lg,
+      backgroundColor: 'rgba(0, 0, 0, 0.72)',
+    },
+    modalCard: {
+      borderRadius: radius.xl,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.panelRaised,
+      padding: spacing.lg,
+    },
+    modalTitle: {
+      color: colors.textPrimary,
+      fontSize: font.xl,
+      fontWeight: '800',
+      marginBottom: spacing.sm,
+    },
+    modalText: {
+      color: colors.textSecondary,
+      fontSize: font.base,
+      lineHeight: 22,
+      marginBottom: spacing.md,
+    },
+    modalInput: {
+      minHeight: 52,
+      borderRadius: radius.lg,
+      borderWidth: 1,
+      borderColor: colors.borderStrong,
+      backgroundColor: colors.surfaceDk,
+      color: colors.textPrimary,
+      fontSize: font.lg,
+      fontWeight: '700',
+      paddingHorizontal: spacing.md,
+      marginBottom: spacing.sm,
+    },
+    modalError: {
+      color: colors.error,
+      fontSize: font.sm,
+      marginBottom: spacing.sm,
+    },
+    modalActions: {
+      flexDirection: 'row',
+      gap: spacing.sm,
+      marginTop: spacing.sm,
     },
   })
 }
@@ -1029,6 +1330,22 @@ function createGlassStyles(theme: ReturnType<typeof useTheme>) {
       fontSize: 12,
       lineHeight: 18,
       marginTop: 14,
+    },
+    inlineActionButton: {
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginTop: 14,
+      minHeight: 42,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: colors.heroEdge,
+      backgroundColor: colors.heroSurface,
+    },
+    inlineActionText: {
+      color: colors.primary,
+      fontSize: 13,
+      fontWeight: '800',
+      letterSpacing: 0.2,
     },
     chartCard: {
       marginBottom: 14,

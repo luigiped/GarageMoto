@@ -38,3 +38,4 @@ coverage/
 # ─── VS CODE ──────────────────────────────────────────────────────────────────
 .vscode/
 !.vscode/extensions.json
+.easignore
